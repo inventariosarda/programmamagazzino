@@ -72,7 +72,11 @@
   <script src="./js/firebase-config-global.js"></script>
 
 <script type="module">
-  import { auth, db, fb } from "./js/firebase.js";
+  window.__MODULE_LOADED__ = (window.__MODULE_LOADED__||[]);
+window.__MODULE_LOADED__.push({page:'programma.html', ts:Date.now()});
+console.log('[MODULE]', 'programma.html', 'loaded');
+
+import { auth, db, fb } from "./js/firebase.js";
   import { $, $$, escapeHtml, formatISODate, parseISODate, startOfWeek, weekIdFromDate, humanDate, debounce } from "./js/utils.js";
 
   const deptBoard = $("#deptBoard");
@@ -493,6 +497,29 @@
 
   // ping that base script executed
   log('[OK] Debug attivo. UserAgent: ' + navigator.userAgent);
+})();
+</script>
+
+<script id="moduleStatusBanner">
+(function(){
+  function show(){
+    const div=document.createElement('div');
+    div.style.position='fixed';
+    div.style.top='10px';
+    div.style.left='10px';
+    div.style.zIndex='99999';
+    div.style.padding='8px 10px';
+    div.style.borderRadius='12px';
+    div.style.background='rgba(0,0,0,.75)';
+    div.style.border='1px solid rgba(255,255,255,.18)';
+    div.style.color='#e5e7eb';
+    div.style.fontSize='12px';
+    div.textContent = window.__MODULE_LOADED__ ? ('Module OK: ' + window.__MODULE_LOADED__.map(x=>x.page).join(', ')) : 'ATTENZIONE: moduli NON caricati';
+    document.body.appendChild(div);
+    setTimeout(()=>div.remove(), 8000);
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', show);
+  else show();
 })();
 </script>
 </body>
