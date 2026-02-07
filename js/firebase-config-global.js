@@ -1,9 +1,10 @@
-// Firebase configuration (global for compat SDK)
+// Firebase configuration (GLOBAL)
 window.firebaseConfig = {
-  apiKey: "AIzaSyDkljDA6GmI_1PFssiSxWtcmmkigu7Csk4",
-  authDomain: "programma-magazzino.firebaseapp.com",
-  projectId: "programma-magazzino",
-  storageBucket: "programma-magazzino.firebasestorage.app",
-  messagingSenderId: "275162226627",
-  appId: "1:275162226627:web:83ea00dc122517623fa776"
+  apiKey: "AIzaSyDOQTxHXbeGMhimYyBer3lADFqj_5N8Qwo",
+  authDomain: "inventario-imballaggi.firebaseapp.com",
+  databaseURL: "https://inventario-imballaggi-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "inventario-imballaggi",
+  storageBucket: "inventario-imballaggi.firebasestorage.app",
+  messagingSenderId: "369436001397",
+  appId: "1:369436001397:web:c50120ad1bd97e1a56243c"
 };

@@ -474,9 +474,23 @@ function flash(t){
 document.addEventListener('DOMContentLoaded', ()=>{
   const b = document.getElementById('btnTestWrite');
   if(!b) return;
-  b.addEventListener('click', ()=>{
+
+  b.addEventListener('click', async ()=>{
     console.log('[FALLBACK] click btnTestWrite');
-    alert('CLICK OK: il bottone risponde. Se dopo questo non succede altro, è un problema di script module/Firebase/Firestore.');
+    try{
+      if(!window.firebase || !firebase.firestore){
+        alert('Firebase compat NON caricato (firebase globale mancante).');
+        return;
+      }
+      const user = firebase.auth && firebase.auth().currentUser;
+      const email = user ? user.email : null;
+
+      await firebase.firestore().doc('debug/test_write').set({ ts: Date.now(), by: email }, { merge:true });
+      alert('✅ Test Firestore OK: scrittura riuscita.');
+    }catch(e){
+      console.error(e);
+      alert('❌ Test Firestore FALLITO: ' + (e && e.message ? e.message : e));
+    }
   }, {capture:true});
 });
 </script>
