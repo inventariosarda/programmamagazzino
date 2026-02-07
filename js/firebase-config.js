@@ -1,10 +1,10 @@
 // Incolla qui la configurazione del tuo progetto Firebase
 // Firebase Console → Project settings → General → Your apps (Web) → Config
-export const firebaseConfig = {
-  apiKey: "PASTE_ME",
-  authDomain: "PASTE_ME",
-  projectId: "PASTE_ME",
-  storageBucket: "PASTE_ME",
-  messagingSenderId: "PASTE_ME",
-  appId: "PASTE_ME",
+const firebaseConfig = {
+  apiKey: "AIzaSyDkljDA6GmI_1PFssiSxWtcmmkigu7Csk4",
+  authDomain: "programma-magazzino.firebaseapp.com",
+  projectId: "programma-magazzino",
+  storageBucket: "programma-magazzino.firebasestorage.app",
+  messagingSenderId: "275162226627",
+  appId: "1:275162226627:web:83ea00dc122517623fa776"
 };
