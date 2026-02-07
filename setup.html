@@ -37,6 +37,7 @@
           </div>
 
           <div class="small" style="margin-top:10px">Suggerimento: usa nomi brevi (nome + iniziale) per farli entrare bene nel PDF/Excel.</div>
+<div class="small" id="empMsg" style="margin-top:8px"></div>
 
           <hr class="sep"/>
           <div id="empList" class="row" style="flex-direction:column;align-items:stretch;gap:8px"></div>
@@ -51,6 +52,22 @@
             <div class="small" style="margin-top:6px">Il programma usa questi orari per mostrare i turni e per l'export.</div>
           </div>
 
+          <hr class="sep"/>
+          <div class="row">
+            <div class="field" style="flex:1;min-width:260px">
+              <label>Nuovo reparto</label>
+              <input id="newDeptName" placeholder="Es. Confezione speciale"/>
+            </div>
+            <div class="field" style="min-width:120px">
+              <label>Ordine</label>
+              <input id="newDeptOrder" type="number" value="999"/>
+            </div>
+            <div class="field" style="min-width:140px">
+              <label>&nbsp;</label>
+              <button class="btn" id="btnAddDept">Aggiungi reparto</button>
+            </div>
+          </div>
+          <div class="small" id="deptMsg" style="margin-top:8px"></div>
           <hr class="sep"/>
           <div id="deptList" style="display:flex;flex-direction:column;gap:10px"></div>
 
@@ -71,8 +88,23 @@
   const empList = $("#empList");
   const deptList = $("#deptList");
   const saveMsg = $("#saveMsg");
+  const empMsg = $("#empMsg");
+  const deptMsg = $("#deptMsg");
 
-  function flash(t){
+  
+  function sayEmp(t){ empMsg.textContent = t || ""; if(t){ setTimeout(()=>empMsg.textContent="", 2200);} }
+  function sayDept(t){ deptMsg.textContent = t || ""; if(t){ setTimeout(()=>deptMsg.textContent="", 2200);} }
+
+  function slugify(str){
+    return String(str)
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .replace(/_+/g, "_");
+  }
+function flash(t){
     saveMsg.textContent = t || "";
     if(t){ setTimeout(()=>saveMsg.textContent="", 1600); }
   }
@@ -124,11 +156,19 @@
   }
 
   $("#btnAddEmp").addEventListener("click", async ()=>{
+    sayEmp("");
     const name = $("#empName").value.trim();
-    if(!name) return;
-    await fb.addDoc(fb.collection(db, "settings_employees"), { name, active:true, createdAt: Date.now() });
-    $("#empName").value = "";
-    await renderEmployees();
+    if(!name){ sayEmp("Inserisci un nome."); return; }
+    try{
+      await fb.addDoc(fb.collection(db, "settings_employees"), { name, active:true, createdAt: Date.now() });
+      $("#empName").value = "";
+      await renderEmployees();
+      sayEmp("Dipendente aggiunto.");
+    }catch(e){
+      console.error(e);
+      sayEmp("Errore aggiunta dipendente: " + (e?.message || e));
+      alert("Errore aggiunta dipendente. Apri la console per dettagli.");
+    }
   });
 
   // --- DEPARTMENTS ---
@@ -163,21 +203,90 @@
     await renderDepartments();
     flash("Ripristinato.");
   });
+  $("#btnAddDept").addEventListener("click", async ()=>{
+    sayDept("");
+    const name = $("#newDeptName").value.trim();
+    if(!name){ sayDept("Inserisci il nome del reparto."); return; }
+    const order = Number($("#newDeptOrder").value || 999);
+    const baseId = slugify(name) || "reparto";
+    const id = baseId + "_" + Math.random().toString(36).slice(2,7);
+    try{
+      await fb.setDoc(fb.doc(db, "settings_departments", id), {
+        name,
+        order,
+        shifts: DEFAULT_SHIFTS
+      });
+      $("#newDeptName").value = "";
+      $("#newDeptOrder").value = String(order + 10);
+      await renderDepartments();
+      sayDept("Reparto aggiunto.");
+    }catch(e){
+      console.error(e);
+      sayDept("Errore aggiunta reparto: " + (e?.message || e));
+      alert("Errore aggiunta reparto. Apri la console per dettagli.");
+    }
+  });
+
 
   const saveDeptDebounced = debounce(async (id, patch)=>{
     await fb.updateDoc(fb.doc(db, "settings_departments", id), patch);
     flash("Salvato.");
   }, 450);
 
+  
   async function renderDepartments(){
     deptList.innerHTML = "";
     const q = fb.query(fb.collection(db, "settings_departments"), fb.orderBy("order"));
     const snap = await fb.getDocs(q);
 
+    if(snap.empty){
+      deptList.innerHTML = '<div class="small muted">Nessun reparto presente.</div>';
+      return;
+    }
+
     snap.forEach(docu=>{
       const d = docu.data();
+      const shiftsObj = d.shifts || DEFAULT_SHIFTS;
+
       const box = document.createElement("div");
       box.className = "dept";
+
+      // Costruisci lista turni (ordinata per chiave: s1, s2, s3...)
+      const shiftKeys = Object.keys(shiftsObj).sort((a,b)=>{
+        const na = Number(a.replace(/\D/g,"")) || 0;
+        const nb = Number(b.replace(/\D/g,"")) || 0;
+        return na - nb;
+      });
+
+      const shiftsHtml = shiftKeys.map((k)=> {
+        const s = shiftsObj[k] || {};
+        const label = s.label || k.toUpperCase();
+        const start = s.start || "07:00";
+        const end = s.end || "13:00";
+        return `
+          <div class="dept" style="border:none;background:transparent">
+            <div class="row" style="align-items:flex-end;gap:10px">
+              <div class="field" style="min-width:200px;flex:1">
+                <label>${escapeHtml(k)} — Etichetta</label>
+                <input data-shift="${escapeHtml(k)}" data-k="label" value="${escapeHtml(label)}"/>
+              </div>
+              <div class="field" style="min-width:160px">
+                <label>Inizio</label>
+                <input data-shift="${escapeHtml(k)}" data-k="start" type="time" value="${escapeHtml(start)}"/>
+              </div>
+              <div class="field" style="min-width:160px">
+                <label>Fine</label>
+                <input data-shift="${escapeHtml(k)}" data-k="end" type="time" value="${escapeHtml(end)}"/>
+              </div>
+              <div class="field" style="min-width:130px">
+                <label>&nbsp;</label>
+                <button class="btn danger" data-act="delShift" data-shift="${escapeHtml(k)}">Elimina turno</button>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('<hr class="sep"/>');
+
       box.innerHTML = `
         <div class="dept-head">
           <div>
@@ -189,6 +298,8 @@
               <label>Ordine</label>
               <input data-k="order" type="number" value="${Number(d.order ?? 0)}" style="max-width:110px"/>
             </div>
+            <button class="btn secondary" data-act="addShift">+ Turno</button>
+            <button class="btn danger" data-act="delDept">Elimina reparto</button>
           </div>
         </div>
 
@@ -202,49 +313,101 @@
 
           <hr class="sep"/>
 
-          <div class="row">
-            <div class="field" style="min-width:160px">
-              <label>Turno 1 — Inizio</label>
-              <input data-k="s1start" type="time" value="${escapeHtml(d.shifts?.s1?.start || "07:00")}"/>
-            </div>
-            <div class="field" style="min-width:160px">
-              <label>Turno 1 — Fine</label>
-              <input data-k="s1end" type="time" value="${escapeHtml(d.shifts?.s1?.end || "13:00")}"/>
-            </div>
-            <div class="field" style="min-width:160px">
-              <label>Turno 2 — Inizio</label>
-              <input data-k="s2start" type="time" value="${escapeHtml(d.shifts?.s2?.start || "13:00")}"/>
-            </div>
-            <div class="field" style="min-width:160px">
-              <label>Turno 2 — Fine</label>
-              <input data-k="s2end" type="time" value="${escapeHtml(d.shifts?.s2?.end || "19:00")}"/>
-            </div>
+          <div style="display:flex;flex-direction:column;gap:10px" data-area="shifts">
+            ${shiftsHtml}
           </div>
         </div>
       `;
 
-      box.querySelectorAll("input").forEach(inp=>{
+      // handlers base fields
+      box.querySelectorAll('input[data-k="order"]').forEach(inp=>{
         inp.addEventListener("input", ()=>{
-          const k = inp.getAttribute("data-k");
-          const val = inp.type === "number" ? Number(inp.value) : inp.value;
-
-          if(k === "order"){
-            saveDeptDebounced(docu.id, { order: val });
-          } else if(k === "name"){
-            saveDeptDebounced(docu.id, { name: val });
-          } else {
-            const shifts = {
-              s1: { ...(d.shifts?.s1 || {}), start: box.querySelector('[data-k="s1start"]').value, end: box.querySelector('[data-k="s1end"]').value, label:"Turno 1" },
-              s2: { ...(d.shifts?.s2 || {}), start: box.querySelector('[data-k="s2start"]').value, end: box.querySelector('[data-k="s2end"]').value, label:"Turno 2" }
-            };
-            saveDeptDebounced(docu.id, { shifts });
-          }
+          const val = Number(inp.value);
+          saveDeptDebounced(docu.id, { order: val });
         });
+      });
+      box.querySelectorAll('input[data-k="name"]').forEach(inp=>{
+        inp.addEventListener("input", ()=>{
+          const val = inp.value;
+          saveDeptDebounced(docu.id, { name: val });
+        });
+      });
+
+      // handlers shift fields
+      box.querySelectorAll('[data-area="shifts"] input').forEach(inp=>{
+        inp.addEventListener("input", ()=>{
+          const sk = inp.getAttribute("data-shift");
+          const k = inp.getAttribute("data-k");
+          const val = inp.value;
+          const current = (d.shifts || DEFAULT_SHIFTS);
+          const next = JSON.parse(JSON.stringify(current));
+          next[sk] = next[sk] || {};
+          next[sk][k] = val;
+          saveDeptDebounced(docu.id, { shifts: next });
+        });
+      });
+
+      // delete shift
+      box.querySelectorAll('[data-act="delShift"]').forEach(btn=>{
+        btn.addEventListener("click", async ()=>{
+          const sk = btn.getAttribute("data-shift");
+          if(!confirm(`Eliminare il turno ${sk}?`)) return;
+          const current = (d.shifts || DEFAULT_SHIFTS);
+          const next = JSON.parse(JSON.stringify(current));
+          delete next[sk];
+          // evita reparto senza turni
+          if(Object.keys(next).length === 0){
+            alert("Non puoi lasciare il reparto senza turni.");
+            return;
+          }
+          await fb.updateDoc(fb.doc(db, "settings_departments", docu.id), { shifts: next });
+          flash("Salvato.");
+          await renderDepartments();
+        });
+      });
+
+      // add shift (global)
+      box.querySelector('[data-act="addShift"]').addEventListener("click", async ()=>{
+        const current = (d.shifts || DEFAULT_SHIFTS);
+        const keys = Object.keys(current);
+        const nums = keys.map(k=>Number(k.replace(/\D/g,""))||0);
+        const nextN = (Math.max(...nums, 2) + 1);
+        const newKey = "s" + nextN;
+
+        const start = prompt(`Orario INIZIO per ${newKey} (HH:MM)`, "19:00");
+        if(!start) return;
+        const end = prompt(`Orario FINE per ${newKey} (HH:MM)`, "23:00");
+        if(!end) return;
+
+        const next = JSON.parse(JSON.stringify(current));
+        next[newKey] = { label: `Turno ${nextN}`, start, end };
+        try{
+          await fb.updateDoc(fb.doc(db, "settings_departments", docu.id), { shifts: next });
+          flash("Turno aggiunto.");
+          await renderDepartments();
+        }catch(e){
+          console.error(e);
+          alert("Errore aggiunta turno: " + (e?.message || e));
+        }
+      });
+
+      // delete department
+      box.querySelector('[data-act="delDept"]').addEventListener("click", async ()=>{
+        if(!confirm("Eliminare il reparto? (Attenzione: non cancella automaticamente le assegnazioni già fatte nei giorni)")) return;
+        try{
+          await fb.deleteDoc(fb.doc(db, "settings_departments", docu.id));
+          flash("Reparto eliminato.");
+          await renderDepartments();
+        }catch(e){
+          console.error(e);
+          alert("Errore eliminazione reparto: " + (e?.message || e));
+        }
       });
 
       deptList.appendChild(box);
     });
   }
+
 </script>
 </body>
 </html>

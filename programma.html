@@ -35,7 +35,7 @@
 
     <div class="grid">
       <div class="card">
-        <header><h2>Reparti (trascina i dipendenti nei turni)</h2><span class="badge" id="saveState">—</span></header>
+        <header><h2>Reparti (trascina i dipendenti nei turni • + turno dal reparto)</h2><span class="badge" id="saveState">—</span></header>
         <div class="content" id="deptBoard" style="display:flex;flex-direction:column;gap:10px"></div>
       </div>
 
@@ -228,41 +228,82 @@
     renderPool();
   }
 
+
   function renderDepartmentsBoard(){
     deptBoard.innerHTML = "";
 
     for(const dep of departments){
-      const shifts = dep.shifts || {};
-      const s1 = shifts.s1 || { label:"Turno 1", start:"07:00", end:"13:00" };
-      const s2 = shifts.s2 || { label:"Turno 2", start:"13:00", end:"19:00" };
+      const shiftsObj = dep.shifts || {};
+      const shiftKeys = Object.keys(shiftsObj).sort((a,b)=>{
+        const na = Number(a.replace(/\D/g,"")) || 0;
+        const nb = Number(b.replace(/\D/g,"")) || 0;
+        return na - nb;
+      });
 
       const wrap = document.createElement("div");
       wrap.className = "dept";
+
+      // header
       wrap.innerHTML = `
         <div class="dept-head">
           <div>
             <div class="dept-name">${escapeHtml(dep.name || dep.id)}</div>
-            <div class="dept-sub">${escapeHtml(s1.start)}–${escapeHtml(s1.end)} • ${escapeHtml(s2.start)}–${escapeHtml(s2.end)}</div>
+            <div class="dept-sub">Turni: ${shiftKeys.length || 0}</div>
           </div>
-          <div class="badge">${escapeHtml(dep.id)}</div>
-        </div>
-
-        <div class="shift">
-          <div class="shift-title"><b>${escapeHtml(s1.label || "Turno 1")}</b><div class="small">${escapeHtml(s1.start)}–${escapeHtml(s1.end)}</div></div>
-          <div class="dropzone" data-dep="${dep.id}" data-shift="s1"></div>
-        </div>
-
-        <div class="shift">
-          <div class="shift-title"><b>${escapeHtml(s2.label || "Turno 2")}</b><div class="small">${escapeHtml(s2.start)}–${escapeHtml(s2.end)}</div></div>
-          <div class="dropzone" data-dep="${dep.id}" data-shift="s2"></div>
+          <div class="row" style="gap:8px">
+            <button class="btn secondary" data-act="addShift">+ Turno</button>
+            <div class="badge">${escapeHtml(dep.id)}</div>
+          </div>
         </div>
       `;
+
+      // add shifts UI
+      const content = document.createElement("div");
+      content.className = "content";
+      content.style.padding = "12px";
+      content.style.display = "flex";
+      content.style.flexDirection = "column";
+      content.style.gap = "10px";
+
+      if(shiftKeys.length === 0){
+        const empty = document.createElement("div");
+        empty.className = "small muted";
+        empty.textContent = "Nessun turno configurato. Aggiungi un turno.";
+        content.appendChild(empty);
+      }
+
+      for(const shiftKey of shiftKeys){
+        const sft = shiftsObj[shiftKey] || {};
+        const label = sft.label || shiftKey.toUpperCase();
+        const startT = sft.start || "07:00";
+        const endT = sft.end || "13:00";
+
+        const block = document.createElement("div");
+        block.className = "shift";
+        block.innerHTML = `
+          <div class="shift-title">
+            <b>${escapeHtml(label)}</b>
+            <div class="small">${escapeHtml(startT)}–${escapeHtml(endT)}</div>
+          </div>
+          <div class="dropzone" data-dep="${dep.id}" data-shift="${escapeHtml(shiftKey)}"></div>
+        `;
+        content.appendChild(block);
+      }
+
+      wrap.appendChild(content);
       deptBoard.appendChild(wrap);
 
-      // popola chips
-      for(const shiftKey of ["s1","s2"]){
-        const zone = wrap.querySelector(`.dropzone[data-shift="${shiftKey}"]`);
-        const ids = (dayData.assignments?.[dep.id]?.[shiftKey]) || [];
+      // Ensure assignments structure for this dept includes all shifts
+      dayData.assignments[dep.id] = dayData.assignments[dep.id] || {};
+      for(const shiftKey of shiftKeys){
+        dayData.assignments[dep.id][shiftKey] = dayData.assignments[dep.id][shiftKey] || [];
+      }
+
+      // Populate chips + drag/drop per zone
+      wrap.querySelectorAll(".dropzone").forEach(zone=>{
+        const depId = zone.getAttribute("data-dep");
+        const sk = zone.getAttribute("data-shift");
+        const ids = (dayData.assignments?.[depId]?.[sk]) || [];
         if(ids.length === 0){
           zone.innerHTML = `<div class="small muted">Trascina qui i dipendenti</div>`;
         } else {
@@ -282,23 +323,53 @@
           });
         }
 
-        // drag/drop handlers
         zone.addEventListener("dragover", (ev)=>{ ev.preventDefault(); zone.classList.add("over"); });
         zone.addEventListener("dragleave", ()=> zone.classList.remove("over"));
         zone.addEventListener("drop", (ev)=>{
           ev.preventDefault();
           zone.classList.remove("over");
-          const depId = zone.getAttribute("data-dep");
-          const sk = zone.getAttribute("data-shift");
           const empId = ev.dataTransfer.getData("text/plain") || draggingEmpId;
           if(!empId) return;
           addToAssignment(depId, sk, empId);
           saveDayDebounced();
           renderAll();
         });
-      }
+      });
+
+      // Add shift from PROGRAMMA (updates settings_departments)
+      wrap.querySelector('[data-act="addShift"]').addEventListener("click", async ()=>{
+        const start = prompt("Orario INIZIO turno (HH:MM)", "19:00");
+        if(!start) return;
+        const end = prompt("Orario FINE turno (HH:MM)", "23:00");
+        if(!end) return;
+        const label = prompt("Nome turno (opzionale)", `Turno ${shiftKeys.length + 1}`) || `Turno ${shiftKeys.length + 1}`;
+
+        try{
+          setSaving("Salvo turno…");
+          // calcola nuova chiave sN
+          const nums = shiftKeys.map(k=>Number(k.replace(/\D/g,""))||0);
+          const nextN = (Math.max(...nums, 0) + 1);
+          const newKey = "s" + nextN;
+
+          const nextShifts = JSON.parse(JSON.stringify(shiftsObj));
+          nextShifts[newKey] = { label, start, end };
+
+          await fb.updateDoc(fb.doc(db, "settings_departments", dep.id), { shifts: nextShifts });
+
+          // ricarica setup e giorno (per avere struttura aggiornata)
+          await loadSetup();
+          await loadDay();
+          renderAll();
+          setSaving("Turno aggiunto");
+        }catch(e){
+          console.error(e);
+          setSaving("Errore turno");
+          alert("Errore aggiunta turno: " + (e?.message || e));
+        }
+      });
     }
   }
+
 
   function renderPool(){
     const q = ($("#search").value || "").trim().toLowerCase();
