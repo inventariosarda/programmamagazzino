@@ -1,5 +1,3 @@
-// Incolla qui la configurazione del tuo progetto Firebase
-// Firebase Console → Project settings → General → Your apps (Web) → Config
 export const firebaseConfig = {
   apiKey: "AIzaSyDkljDA6GmI_1PFssiSxWtcmmkigu7Csk4",
   authDomain: "programma-magazzino.firebaseapp.com",
