@@ -179,3 +179,22 @@ hr.sep{border:none;border-top:1px solid rgba(255,255,255,.08);margin:14px 0}
 .footer-actions{display:flex;gap:10px;flex-wrap:wrap}
 
 .small{font-size:12px;color:var(--muted)}
+
+
+/* Sticky sidebar */
+.sticky{
+  position: sticky;
+  top: 88px;
+  align-self: start;
+  max-height: calc(100vh - 110px);
+  overflow: hidden;
+}
+.sticky .content{
+  max-height: calc(100vh - 170px);
+  overflow: auto;
+}
+.smallbtn{
+  padding:8px 10px;
+  border-radius: 10px;
+  font-size: 13px;
+}

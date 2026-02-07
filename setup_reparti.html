@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>SETUP — Reparti</title>
+  <link rel="stylesheet" href="./styles.css"/>
+</head>
+<body>
+  <div class="container">
+
+    <div class="topbar">
+      <div class="brand">
+        <a href="./index.html" style="text-decoration:none">
+          <div style="font-size:18px;font-weight:800">Programma Magazzino</div>
+        </a>
+        <span class="badge">SETUP • Reparti</span>
+      </div>
+      <div class="row">
+        <a class="btn secondary" href="./setup_dipendenti.html">Dipendenti</a>
+        <a class="btn secondary" href="./setup_reparti.html">Reparti</a>
+        <a class="btn secondary" href="./programma.html">PROGRAMMA</a>
+        <button class="btn danger" id="btnLogout" type="button">Esci</button>
+      </div>
+    </div>
+
+
+    <div class="grid" style="grid-template-columns: 1fr;">
+      <div class="card">
+        <header><h2>Reparti, Sottoreparti e Turni</h2><span class="badge" id="authState">—</span></header>
+        <div class="content">
+          <div class="notice">
+            Ogni reparto ha di default <b>1 turno</b> (08:00–17:00).
+            Puoi aggiungere sottoreparti (es. Confezione → Linea 1 / Linea 2) e aggiungere/togliere turni.
+          </div>
+
+          <hr class="sep"/>
+
+          <div class="row">
+            <div class="field" style="flex:1;min-width:260px">
+              <label>Nuovo reparto</label>
+              <input id="newDeptName" placeholder="Es. Confezione"/>
+            </div>
+            <div class="field" style="min-width:120px">
+              <label>Ordine</label>
+              <input id="newDeptOrder" type="number" value="999"/>
+            </div>
+            <div class="field" style="min-width:160px">
+              <label>&nbsp;</label>
+              <button class="btn" id="btnAddDept" type="button">Aggiungi reparto</button>
+            </div>
+          </div>
+          <div class="small" id="deptMsg" style="margin-top:8px"></div>
+
+          <hr class="sep"/>
+          <div id="deptList" style="display:flex;flex-direction:column;gap:10px"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <script src="https://cdn.jsdelivr.net/npm/firebase@10.12.5/firebase-app-compat.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/firebase@10.12.5/firebase-auth-compat.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/firebase@10.12.5/firebase-firestore-compat.js"></script>
+  <script src="./js/firebase-config-global.js"></script>
+
+
+<script type="module">
+  import { auth, db, fb } from "./js/firebase.js";
+  import { DEFAULT_SHIFTS } from "./js/constants.js";
+  import { $, escapeHtml, debounce } from "./js/utils.js";
+
+  const deptList = $("#deptList");
+  const deptMsg = $("#deptMsg");
+
+  function say(t){ deptMsg.textContent = t || ""; if(t) setTimeout(()=>deptMsg.textContent="", 2600); }
+
+  function slugify(str){
+    return String(str)
+      .normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase().replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "").replace(/_+/g, "_");
+  }
+
+  fb.onAuthStateChanged(auth, async (user)=>{
+    if(!user){ location.href="./index.html"; return; }
+    $("#authState").textContent = user.email || "LOGGATO";
+    await renderDepartments();
+  });
+
+  $("#btnLogout").addEventListener("click", async ()=>{
+    await fb.signOut(auth);
+    location.href="./index.html";
+  });
+
+  const saveDeptDebounced = debounce(async (id, patch)=>{
+    await fb.updateDoc(fb.doc(db, "settings_departments", id), patch);
+    say("Salvato.");
+  }, 450);
+
+  $("#btnAddDept").addEventListener("click", async ()=>{
+    say("");
+    const name = $("#newDeptName").value.trim();
+    if(!name){ say("Inserisci il nome del reparto."); return; }
+    const order = Number($("#newDeptOrder").value || 999);
+    const id = (slugify(name) || "reparto") + "_" + Math.random().toString(36).slice(2,7);
+    try{
+      await fb.setDoc(fb.doc(db, "settings_departments", id), {
+        name,
+        order,
+        shifts: DEFAULT_SHIFTS,
+        subdeps: []
+      });
+      $("#newDeptName").value = "";
+      $("#newDeptOrder").value = String(order + 10);
+      await renderDepartments();
+      say("Reparto aggiunto.");
+    }catch(e){
+      console.error(e);
+      say("Errore: " + (e?.message || e));
+      alert("Errore aggiunta reparto: " + (e?.message || e));
+    }
+  });
+
+  async function renderDepartments(){
+    deptList.innerHTML = "";
+    const q = fb.query(fb.collection(db, "settings_departments"), fb.orderBy("order"));
+    const snap = await fb.getDocs(q);
+    if(snap.empty){
+      deptList.innerHTML = '<div class="small muted">Nessun reparto presente.</div>';
+      return;
+    }
+
+    snap.forEach(docu=>{
+      const d = docu.data();
+      const shifts = d.shifts || DEFAULT_SHIFTS;
+      const subdeps = Array.isArray(d.subdeps) ? d.subdeps : [];
+
+      const box = document.createElement("div");
+      box.className = "dept";
+
+      const shiftKeys = Object.keys(shifts).sort((a,b)=> (Number(a.replace(/\D/g,""))||0) - (Number(b.replace(/\D/g,""))||0));
+
+      const shiftsHtml = shiftKeys.map((k)=>{
+        const s = shifts[k] || {};
+        return `
+          <div class="row" style="align-items:flex-end;gap:10px">
+            <div class="field" style="min-width:200px;flex:1">
+              <label>${escapeHtml(k)} — Etichetta</label>
+              <input data-shift="${escapeHtml(k)}" data-k="label" value="${escapeHtml(s.label || "Turno")}"/>
+            </div>
+            <div class="field" style="min-width:150px">
+              <label>Inizio</label>
+              <input data-shift="${escapeHtml(k)}" data-k="start" type="time" value="${escapeHtml(s.start || "08:00")}"/>
+            </div>
+            <div class="field" style="min-width:150px">
+              <label>Fine</label>
+              <input data-shift="${escapeHtml(k)}" data-k="end" type="time" value="${escapeHtml(s.end || "17:00")}"/>
+            </div>
+            <div class="field" style="min-width:140px">
+              <label>&nbsp;</label>
+              <button class="btn danger smallbtn" data-act="delShift" data-shift="${escapeHtml(k)}" type="button">Togli turno</button>
+            </div>
+          </div>
+        `;
+      }).join('<hr class="sep"/>');
+
+      const subHtml = subdeps.slice().sort((a,b)=> (a.order||0)-(b.order||0)).map(sd=>`
+        <div class="employee" style="cursor:default">
+          <div>
+            <div class="name">${escapeHtml(sd.name)}</div>
+            <div class="small muted">Sottoreparto</div>
+          </div>
+          <div class="row" style="gap:8px">
+            <button class="btn secondary smallbtn" data-act="editSub" data-sub="${escapeHtml(sd.id)}" type="button">Rinomina</button>
+            <button class="btn danger smallbtn" data-act="delSub" data-sub="${escapeHtml(sd.id)}" type="button">Elimina</button>
+          </div>
+        </div>
+      `).join("");
+
+      box.innerHTML = `
+        <div class="dept-head">
+          <div>
+            <div class="dept-name">${escapeHtml(d.name || docu.id)}</div>
+            <div class="dept-sub">ID: <span class="kbd">${docu.id}</span></div>
+          </div>
+          <div class="row" style="gap:8px">
+            <div class="field" style="min-width:120px">
+              <label>Ordine</label>
+              <input data-k="order" type="number" value="${Number(d.order ?? 0)}" style="max-width:110px"/>
+            </div>
+            <button class="btn secondary smallbtn" data-act="addShift" type="button">+ Turno</button>
+            <button class="btn danger smallbtn" data-act="delDept" type="button">Elimina reparto</button>
+          </div>
+        </div>
+
+        <div class="content" style="padding:12px">
+          <div class="row">
+            <div class="field" style="min-width:260px;flex:1">
+              <label>Nome reparto</label>
+              <input data-k="name" value="${escapeHtml(d.name || "")}"/>
+            </div>
+          </div>
+
+          <hr class="sep"/>
+          <div class="row">
+            <div class="field" style="flex:1;min-width:240px">
+              <label>Aggiungi sottoreparto</label>
+              <input data-k="newSubName" placeholder="Es. Linea 1"/>
+            </div>
+            <div class="field" style="min-width:120px">
+              <label>Ordine</label>
+              <input data-k="newSubOrder" type="number" value="10"/>
+            </div>
+            <div class="field" style="min-width:150px">
+              <label>&nbsp;</label>
+              <button class="btn smallbtn" data-act="addSub" type="button">Aggiungi</button>
+            </div>
+          </div>
+
+          <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px" data-area="subdeps">
+            ${subHtml || '<div class="small muted">Nessun sottoreparto (se vuoto, in programma userà direttamente il reparto).</div>'}
+          </div>
+
+          <hr class="sep"/>
+          <div style="display:flex;flex-direction:column;gap:10px" data-area="shifts">
+            ${shiftsHtml}
+          </div>
+        </div>
+      `;
+
+      box.querySelector('input[data-k="order"]').addEventListener("input", (ev)=>{
+        saveDeptDebounced(docu.id, { order: Number(ev.target.value) });
+      });
+      box.querySelector('input[data-k="name"]').addEventListener("input", (ev)=>{
+        saveDeptDebounced(docu.id, { name: ev.target.value });
+      });
+
+      box.querySelectorAll('[data-area="shifts"] input').forEach(inp=>{
+        inp.addEventListener("input", ()=>{
+          const sk = inp.getAttribute("data-shift");
+          const kk = inp.getAttribute("data-k");
+          const val = inp.value;
+          const next = JSON.parse(JSON.stringify(shifts));
+          next[sk] = next[sk] || {};
+          next[sk][kk] = val;
+          saveDeptDebounced(docu.id, { shifts: next });
+        });
+      });
+
+      box.querySelectorAll('[data-act="delShift"]').forEach(btn=>{
+        btn.addEventListener("click", async ()=>{
+          const sk = btn.getAttribute("data-shift");
+          if(!confirm("Togliere questo turno?")) return;
+          const next = JSON.parse(JSON.stringify(shifts));
+          delete next[sk];
+          if(Object.keys(next).length === 0){
+            alert("Deve rimanere almeno 1 turno.");
+            return;
+          }
+          await fb.updateDoc(fb.doc(db, "settings_departments", docu.id), { shifts: next });
+          await renderDepartments();
+          say("Turno tolto.");
+        });
+      });
+
+      box.querySelector('[data-act="addShift"]').addEventListener("click", async ()=>{
+        const start = prompt("Orario INIZIO (HH:MM)", "17:00");
+        if(!start) return;
+        const end = prompt("Orario FINE (HH:MM)", "21:00");
+        if(!end) return;
+        const label = prompt("Nome turno (opzionale)", "Turno") || "Turno";
+        const nums = shiftKeys.map(k=>Number(k.replace(/\D/g,""))||0);
+        const nextN = (Math.max(...nums, 0) + 1);
+        const newKey = "s" + nextN;
+        const next = JSON.parse(JSON.stringify(shifts));
+        next[newKey] = { label, start, end };
+        await fb.updateDoc(fb.doc(db, "settings_departments", docu.id), { shifts: next });
+        await renderDepartments();
+        say("Turno aggiunto.");
+      });
+
+      box.querySelector('[data-act="delDept"]').addEventListener("click", async ()=>{
+        if(!confirm("Eliminare il reparto?")) return;
+        await fb.deleteDoc(fb.doc(db, "settings_departments", docu.id));
+        await renderDepartments();
+        say("Reparto eliminato.");
+      });
+
+      box.querySelector('[data-act="addSub"]').addEventListener("click", async ()=>{
+        const name = box.querySelector('input[data-k="newSubName"]').value.trim();
+        if(!name){ alert("Inserisci nome sottoreparto"); return; }
+        const order = Number(box.querySelector('input[data-k="newSubOrder"]').value || 10);
+        const id = slugify(name) + "_" + Math.random().toString(36).slice(2,6);
+        const next = JSON.parse(JSON.stringify(subdeps));
+        next.push({ id, name, order });
+        await fb.updateDoc(fb.doc(db, "settings_departments", docu.id), { subdeps: next });
+        await renderDepartments();
+        say("Sottoreparto aggiunto.");
+      });
+
+      box.querySelectorAll('[data-act="editSub"]').forEach(btn=>{
+        btn.addEventListener("click", async ()=>{
+          const sid = btn.getAttribute("data-sub");
+          const cur = subdeps.find(x=>x.id===sid);
+          const nn = prompt("Nuovo nome sottoreparto", cur?.name || "");
+          if(!nn) return;
+          const next = subdeps.map(x=> x.id===sid ? ({...x, name: nn}) : x);
+          await fb.updateDoc(fb.doc(db, "settings_departments", docu.id), { subdeps: next });
+          await renderDepartments();
+          say("Sottoreparto rinominato.");
+        });
+      });
+
+      box.querySelectorAll('[data-act="delSub"]').forEach(btn=>{
+        btn.addEventListener("click", async ()=>{
+          const sid = btn.getAttribute("data-sub");
+          if(!confirm("Eliminare sottoreparto?")) return;
+          const next = subdeps.filter(x=>x.id!==sid);
+          await fb.updateDoc(fb.doc(db, "settings_departments", docu.id), { subdeps: next });
+          await renderDepartments();
+          say("Sottoreparto eliminato.");
+        });
+      });
+
+      deptList.appendChild(box);
+    });
+  }
+</script>
+</body>
+</html>

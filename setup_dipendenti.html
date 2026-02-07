@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>SETUP — Dipendenti</title>
+  <link rel="stylesheet" href="./styles.css"/>
+</head>
+<body>
+  <div class="container">
+
+    <div class="topbar">
+      <div class="brand">
+        <a href="./index.html" style="text-decoration:none">
+          <div style="font-size:18px;font-weight:800">Programma Magazzino</div>
+        </a>
+        <span class="badge">SETUP • Dipendenti</span>
+      </div>
+      <div class="row">
+        <a class="btn secondary" href="./setup_dipendenti.html">Dipendenti</a>
+        <a class="btn secondary" href="./setup_reparti.html">Reparti</a>
+        <a class="btn secondary" href="./programma.html">PROGRAMMA</a>
+        <button class="btn danger" id="btnLogout" type="button">Esci</button>
+      </div>
+    </div>
+
+
+    <div class="grid" style="grid-template-columns: 1fr;">
+      <div class="card">
+        <header><h2>Dipendenti</h2><span class="badge" id="authState">—</span></header>
+        <div class="content">
+          <div class="row">
+            <div class="field" style="flex:1;min-width:260px">
+              <label>Nome dipendente</label>
+              <input id="empName" placeholder="Es. Mario Rossi"/>
+            </div>
+            <div class="field" style="min-width:140px">
+              <label>&nbsp;</label>
+              <button class="btn" id="btnAddEmp" type="button">Aggiungi</button>
+            </div>
+          </div>
+
+          <div class="small" id="empMsg" style="margin-top:8px"></div>
+          <div class="small muted" style="margin-top:8px">Suggerimento: usa nomi brevi (nome + iniziale) per farli entrare bene nel PDF/Excel.</div>
+
+          <hr class="sep"/>
+          <div id="empList" class="row" style="flex-direction:column;align-items:stretch;gap:8px"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <script src="https://cdn.jsdelivr.net/npm/firebase@10.12.5/firebase-app-compat.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/firebase@10.12.5/firebase-auth-compat.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/firebase@10.12.5/firebase-firestore-compat.js"></script>
+  <script src="./js/firebase-config-global.js"></script>
+
+
+<script type="module">
+  import { auth, db, fb } from "./js/firebase.js";
+  import { $, escapeHtml } from "./js/utils.js";
+
+  const empList = $("#empList");
+  const empMsg = $("#empMsg");
+
+  function say(t){ empMsg.textContent = t || ""; if(t) setTimeout(()=>empMsg.textContent="", 2400); }
+
+  fb.onAuthStateChanged(auth, async (user)=>{
+    if(!user){ location.href="./index.html"; return; }
+    $("#authState").textContent = user.email || "LOGGATO";
+    await renderEmployees();
+  });
+
+  $("#btnLogout").addEventListener("click", async ()=>{
+    await fb.signOut(auth);
+    location.href="./index.html";
+  });
+
+  async function renderEmployees(){
+    empList.innerHTML = "";
+    const q = fb.query(fb.collection(db, "settings_employees"), fb.orderBy("name"));
+    const snap = await fb.getDocs(q);
+    if(snap.empty){
+      empList.innerHTML = '<div class="small muted">Nessun dipendente inserito.</div>';
+      return;
+    }
+    snap.forEach(docu=>{
+      const e = docu.data();
+      const row = document.createElement("div");
+      row.className = "employee";
+      row.innerHTML = `
+        <div class="name">${escapeHtml(e.name)}</div>
+        <div class="row" style="gap:8px">
+          <span class="pill">${e.active === false ? "disattivo" : "attivo"}</span>
+          <button class="btn secondary smallbtn" data-act="toggle" type="button">Attiva/Disattiva</button>
+          <button class="btn danger smallbtn" data-act="del" type="button">Elimina</button>
+        </div>
+      `;
+      row.querySelector('[data-act="toggle"]').addEventListener("click", async ()=>{
+        await fb.updateDoc(fb.doc(db, "settings_employees", docu.id), { active: !(e.active === false) });
+        await renderEmployees();
+      });
+      row.querySelector('[data-act="del"]').addEventListener("click", async ()=>{
+        if(!confirm("Eliminare il dipendente?")) return;
+        await fb.deleteDoc(fb.doc(db, "settings_employees", docu.id));
+        await renderEmployees();
+      });
+      empList.appendChild(row);
+    });
+  }
+
+  $("#btnAddEmp").addEventListener("click", async ()=>{
+    say("");
+    const name = $("#empName").value.trim();
+    if(!name){ say("Inserisci un nome."); return; }
+    try{
+      await fb.addDoc(fb.collection(db, "settings_employees"), { name, active:true, createdAt: Date.now() });
+      $("#empName").value = "";
+      await renderEmployees();
+      say("Dipendente aggiunto.");
+    }catch(e){
+      console.error(e);
+      say("Errore: " + (e?.message || e));
+      alert("Errore aggiunta dipendente: " + (e?.message || e));
+    }
+  });
+</script>
+</body>
+</html>
