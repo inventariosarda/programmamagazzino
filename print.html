@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Stampa — Programma Magazzino</title>
+  <link rel="stylesheet" href="./styles.css"/>
+  <style>
+    /* Vista stampa */
+    .print-wrap{max-width: 1200px; margin: 0 auto; padding: 18px;}
+    .paper{
+      background:white;
+      color:#111;
+      border-radius: 10px;
+      overflow:hidden;
+      border: 1px solid #e5e7eb;
+    }
+    .paper header{
+      padding: 14px 16px;
+      border-bottom: 1px solid #e5e7eb;
+      display:flex;justify-content:space-between;align-items:flex-end;gap:10px;
+    }
+    .paper h1{margin:0;font-size:18px}
+    .paper .meta{font-size:12px;color:#374151}
+    table{
+      width:100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      font-size: 12px;
+    }
+    th, td{
+      border: 1px solid #e5e7eb;
+      padding: 8px 8px;
+      vertical-align: top;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    th{background:#f9fafb}
+    .dept-col{width: 180px; font-weight: 700;}
+    .actions{
+      display:flex; gap:10px; flex-wrap:wrap;
+      margin: 10px 0 14px;
+    }
+    @media print{
+      body{background:white}
+      .actions, .topbar{display:none!important}
+      .print-wrap{padding:0}
+      .paper{border:none}
+      @page{size: A4 landscape; margin: 10mm;}
+    }
+  </style>
+</head>
+<body>
+  <div class="print-wrap">
+    <div class="actions">
+      <button class="btn" id="btnPrint">Stampa / Salva PDF</button>
+      <a class="btn secondary" href="./programma.html">Torna al programma</a>
+    </div>
+
+    <div class="paper">
+      <header>
+        <div>
+          <h1>Programma Magazzino</h1>
+          <div class="meta" id="range">—</div>
+        </div>
+        <div class="meta" id="weekId">—</div>
+      </header>
+      <div style="padding: 12px 12px 16px;">
+        <table id="tbl">
+          <thead id="thead"></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+<script type="module">
+  import { auth, db, fb } from "./js/firebase.js";
+  import { $, formatISODate, parseISODate, startOfWeek, weekIdFromDate, humanDate, escapeHtml } from "./js/utils.js";
+
+  const thead = $("#thead");
+  const tbody = $("#tbody");
+
+  $("#btnPrint").addEventListener("click", ()=> window.print());
+
+  function qs(name){
+    const u = new URL(location.href);
+    return u.searchParams.get(name);
+  }
+
+  fb.onAuthStateChanged(auth, async (user)=>{
+    if(!user){ location.href = "./index.html"; return; }
+
+    let week = qs("week");
+    if(!week){
+      const d = new Date();
+      week = weekIdFromDate(d);
+    }
+    $("#weekId").textContent = `Settimana: ${week}`;
+
+    // departments
+    const qd = fb.query(fb.collection(db, "settings_departments"), fb.orderBy("order"));
+    const sd = await fb.getDocs(qd);
+    const departments = [];
+    sd.forEach(docu=> departments.push({id:docu.id, ...docu.data()}));
+
+    // employees (serve per mappare id->nome)
+    const qe = fb.query(fb.collection(db, "settings_employees"), fb.orderBy("name"));
+    const se = await fb.getDocs(qe);
+    const empMap = new Map();
+    se.forEach(docu=>{
+      const e = docu.data();
+      empMap.set(docu.id, e.name || docu.id);
+    });
+
+    // calcola startDate dalla weekId (YYYY-WW) in modo semplice:
+    const [yy, ww] = week.split("-").map(Number);
+    const approx = new Date(yy,0,1);
+    approx.setDate(approx.getDate() + (ww-1)*7);
+    const ws = startOfWeek(approx);
+
+    const days = [];
+    for(let i=0;i<7;i++){
+      const d = new Date(ws);
+      d.setDate(ws.getDate()+i);
+      days.push({ iso: formatISODate(d), d });
+    }
+    const rangeText = `Dal ${days[0].d.toLocaleDateString("it-IT")} al ${days[6].d.toLocaleDateString("it-IT")}`;
+    $("#range").textContent = rangeText;
+
+    // header table
+    thead.innerHTML = "";
+    const trh = document.createElement("tr");
+    trh.innerHTML = `<th class="dept-col">Reparto</th>` + days.map(x=>{
+      const label = x.d.toLocaleDateString("it-IT", { weekday:"short", day:"2-digit", month:"2-digit" });
+      return `<th>${escapeHtml(label)}</th>`;
+    }).join("");
+    thead.appendChild(trh);
+
+    // load each day doc
+    const weekData = {};
+    for(const di of days){
+      const ref = fb.doc(db, "schedules", week, "days", di.iso);
+      const snap = await fb.getDoc(ref);
+      weekData[di.iso] = snap.exists() ? (snap.data().assignments || {}) : {};
+    }
+
+    // rows per department (compact)
+    tbody.innerHTML = "";
+    for(const dep of departments){
+      const s1 = dep.shifts?.s1 || { label:"Turno 1", start:"07:00", end:"13:00" };
+      const s2 = dep.shifts?.s2 || { label:"Turno 2", start:"13:00", end:"19:00" };
+
+      const tr = document.createElement("tr");
+      const tds = [];
+      tds.push(`<td class="dept-col">${escapeHtml(dep.name || dep.id)}</td>`);
+      for(const di of days){
+        const a = weekData[di.iso]?.[dep.id] || { s1:[], s2:[] };
+        const n1 = (a.s1||[]).map(id=>empMap.get(id)).filter(Boolean).join(", ");
+        const n2 = (a.s2||[]).map(id=>empMap.get(id)).filter(Boolean).join(", ");
+        const cell = `T1 (${s1.start}-${s1.end}): ${n1}\nT2 (${s2.start}-${s2.end}): ${n2}`;
+        tds.push(`<td>${escapeHtml(cell)}</td>`);
+      }
+      tr.innerHTML = tds.join("");
+      tbody.appendChild(tr);
+    }
+  });
+</script>
+</body>
+</html>

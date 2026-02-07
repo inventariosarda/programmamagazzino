@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Programma Magazzino</title>
+  <link rel="stylesheet" href="./styles.css"/>
+</head>
+<body>
+  <div class="container">
+    <div class="topbar">
+      <div class="brand">
+        <div style="font-size:18px;font-weight:800">Programma Magazzino</div>
+        <span class="badge">multi-dispositivo (Firebase)</span>
+      </div>
+      <div class="row">
+        <a class="btn secondary" href="./setup.html">SETUP</a>
+        <a class="btn" href="./programma.html">PROGRAMMA</a>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <header>
+          <h2>Accesso</h2>
+          <span class="badge" id="authState">—</span>
+        </header>
+        <div class="content">
+          <div class="notice">
+            Login con email/password. Se l’utente non esiste puoi creare un account qui (utile per i primi 5/6 utenti).
+            <div class="small" style="margin-top:6px">In produzione conviene creare gli utenti solo da admin.</div>
+          </div>
+
+          <hr class="sep"/>
+
+          <div class="row">
+            <div class="field" style="flex:1;min-width:220px">
+              <label>Email</label>
+              <input id="email" type="email" placeholder="nome@azienda.it" autocomplete="username"/>
+            </div>
+            <div class="field" style="flex:1;min-width:220px">
+              <label>Password</label>
+              <input id="pass" type="password" placeholder="••••••••" autocomplete="current-password"/>
+            </div>
+          </div>
+
+          <div class="footer-actions" style="margin-top:12px">
+            <button class="btn" id="btnLogin">Accedi</button>
+            <button class="btn secondary" id="btnRegister">Crea account</button>
+            <button class="btn danger" id="btnLogout" style="display:none">Esci</button>
+          </div>
+
+          <div class="small" id="msg" style="margin-top:10px"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <header><h2>Come si usa</h2></header>
+        <div class="content">
+          <ol class="small" style="margin:0;padding-left:18px;line-height:1.6">
+            <li>Accedi (o crea account per i primi utenti).</li>
+            <li>Vai su <b>SETUP</b> per inserire dipendenti e orari 2 turni per reparto.</li>
+            <li>Vai su <b>PROGRAMMA</b> e trascina i dipendenti nei reparti/turni.</li>
+            <li>Usa <b>Stampa PDF</b> o <b>Excel</b> per esportare la settimana.</li>
+          </ol>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script type="module">
+  import { auth, fb } from "./js/firebase.js";
+  import { $, escapeHtml } from "./js/utils.js";
+
+  const msg = $("#msg");
+  function say(t){ msg.textContent = t || ""; }
+
+  fb.onAuthStateChanged(auth, (user)=>{
+    $("#authState").textContent = user ? "LOGGATO" : "NON LOGGATO";
+    $("#btnLogout").style.display = user ? "inline-flex" : "none";
+    if(user){
+      say(`Ciao! Sei loggato come ${user.email}.`);
+    } else {
+      say("");
+    }
+  });
+
+  $("#btnLogin").addEventListener("click", async ()=>{
+    say("");
+    try{
+      const email = $("#email").value.trim();
+      const pass = $("#pass").value;
+      await fb.signInWithEmailAndPassword(auth, email, pass);
+      say("Accesso OK.");
+    }catch(e){
+      say("Errore login: " + (e?.message || e));
+    }
+  });
+
+  $("#btnRegister").addEventListener("click", async ()=>{
+    say("");
+    try{
+      const email = $("#email").value.trim();
+      const pass = $("#pass").value;
+      await fb.createUserWithEmailAndPassword(auth, email, pass);
+      say("Account creato e accesso OK.");
+    }catch(e){
+      say("Errore creazione account: " + (e?.message || e));
+    }
+  });
+
+  $("#btnLogout").addEventListener("click", async ()=>{
+    await fb.signOut(auth);
+    say("Uscito.");
+  });
+</script>
+</body>
+</html>

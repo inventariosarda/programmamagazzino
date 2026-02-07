@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>PROGRAMMA — Programma Magazzino</title>
+  <link rel="stylesheet" href="./styles.css"/>
+</head>
+<body>
+  <div class="container">
+    <div class="topbar">
+      <div class="brand">
+        <a href="./index.html" style="text-decoration:none">
+          <div style="font-size:18px;font-weight:800">Programma Magazzino</div>
+        </a>
+        <span class="badge">PROGRAMMA</span>
+      </div>
+
+      <div class="row" style="flex-wrap:wrap;justify-content:flex-end">
+        <button class="btn secondary" id="prevDay">⬅</button>
+        <div class="badge" id="dayLabel">—</div>
+        <button class="btn secondary" id="nextDay">➡</button>
+
+        <div class="field" style="min-width:160px">
+          <label style="display:none">Data</label>
+          <input type="date" id="datePick"/>
+        </div>
+
+        <a class="btn secondary" href="./setup.html">SETUP</a>
+        <button class="btn" id="btnPrint">Stampa PDF</button>
+        <button class="btn secondary" id="btnExcel">Excel</button>
+        <button class="btn danger" id="btnLogout">Esci</button>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <header><h2>Reparti (trascina i dipendenti nei turni)</h2><span class="badge" id="saveState">—</span></header>
+        <div class="content" id="deptBoard" style="display:flex;flex-direction:column;gap:10px"></div>
+      </div>
+
+      <div class="card">
+        <header><h2>Dipendenti</h2><span class="badge" id="poolCount">—</span></header>
+        <div class="content">
+          <div class="field" style="min-width:240px">
+            <label>Cerca</label>
+            <input id="search" placeholder="scrivi per filtrare..."/>
+          </div>
+          <hr class="sep"/>
+          <div id="pool" style="display:flex;flex-direction:column;gap:8px"></div>
+          <hr class="sep"/>
+          <div class="small muted">
+            Suggerimento: trascina un nome in un turno. Per rimuoverlo, usa la ✕ sul “chip”.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script type="module">
+  import { auth, db, fb } from "./js/firebase.js";
+  import { $, $$, escapeHtml, formatISODate, parseISODate, startOfWeek, weekIdFromDate, humanDate, debounce } from "./js/utils.js";
+
+  const deptBoard = $("#deptBoard");
+  const pool = $("#pool");
+  const dayLabel = $("#dayLabel");
+  const datePick = $("#datePick");
+  const saveState = $("#saveState");
+  const poolCount = $("#poolCount");
+
+  let departments = []; // {id,name,order,shifts}
+  let employees = [];   // {id,name,active}
+  let dayISO = formatISODate(new Date());
+  let dayData = null;   // { assignments: { deptId: {s1:[], s2:[]} } }
+  let draggingEmpId = null;
+
+  function setSaving(t){ saveState.textContent = t; }
+
+  fb.onAuthStateChanged(auth, async (user)=>{
+    if(!user){ location.href = "./index.html"; return; }
+    initDate(dayISO);
+    await loadSetup();
+    await loadDay();
+    renderAll();
+  });
+
+  $("#btnLogout").addEventListener("click", async ()=>{
+    await fb.signOut(auth);
+    location.href = "./index.html";
+  });
+
+  function initDate(iso){
+    dayISO = iso;
+    datePick.value = dayISO;
+    dayLabel.textContent = humanDate(parseISODate(dayISO));
+  }
+
+  $("#prevDay").addEventListener("click", async ()=>{
+    const d = parseISODate(dayISO);
+    d.setDate(d.getDate()-1);
+    initDate(formatISODate(d));
+    await loadDay();
+    renderAll();
+  });
+
+  $("#nextDay").addEventListener("click", async ()=>{
+    const d = parseISODate(dayISO);
+    d.setDate(d.getDate()+1);
+    initDate(formatISODate(d));
+    await loadDay();
+    renderAll();
+  });
+
+  datePick.addEventListener("change", async ()=>{
+    if(!datePick.value) return;
+    initDate(datePick.value);
+    await loadDay();
+    renderAll();
+  });
+
+  $("#search").addEventListener("input", ()=>{
+    renderPool();
+  });
+
+  $("#btnPrint").addEventListener("click", ()=>{
+    // apre pagina print della settimana del giorno selezionato
+    const d = parseISODate(dayISO);
+    const weekId = weekIdFromDate(d);
+    const url = `./print.html?week=${encodeURIComponent(weekId)}`;
+    window.open(url, "_blank");
+  });
+
+  $("#btnExcel").addEventListener("click", async ()=>{
+    await exportExcel();
+  });
+
+  async function loadSetup(){
+    // departments
+    const qd = fb.query(fb.collection(db, "settings_departments"), fb.orderBy("order"));
+    const sd = await fb.getDocs(qd);
+    departments = [];
+    sd.forEach(docu=>{
+      const d = docu.data();
+      departments.push({ id: docu.id, ...d });
+    });
+
+    // employees
+    const qe = fb.query(fb.collection(db, "settings_employees"), fb.orderBy("name"));
+    const se = await fb.getDocs(qe);
+    employees = [];
+    se.forEach(docu=>{
+      const e = docu.data();
+      if(e.active === false) return;
+      employees.push({ id: docu.id, ...e });
+    });
+  }
+
+  function dayDocRef(){
+    const d = parseISODate(dayISO);
+    const weekId = weekIdFromDate(d);
+    return fb.doc(db, "schedules", weekId, "days", dayISO);
+  }
+
+  async function loadDay(){
+    setSaving("Carico…");
+    const ref = dayDocRef();
+    const snap = await fb.getDoc(ref);
+    if(snap.exists()){
+      dayData = snap.data();
+    } else {
+      dayData = { assignments: {} };
+      // inizializza reparti con array vuoti
+      for(const dep of departments){
+        dayData.assignments[dep.id] = { s1: [], s2: [] };
+      }
+      await fb.setDoc(ref, dayData);
+    }
+
+    // garantisci che tutti i reparti esistano
+    dayData.assignments = dayData.assignments || {};
+    for(const dep of departments){
+      if(!dayData.assignments[dep.id]) dayData.assignments[dep.id] = { s1: [], s2: [] };
+      dayData.assignments[dep.id].s1 = dayData.assignments[dep.id].s1 || [];
+      dayData.assignments[dep.id].s2 = dayData.assignments[dep.id].s2 || [];
+    }
+    setSaving("Pronto");
+  }
+
+  const saveDayDebounced = debounce(async ()=>{
+    try{
+      setSaving("Salvo…");
+      await fb.setDoc(dayDocRef(), dayData, { merge: true });
+      setSaving("Salvato");
+    }catch(e){
+      setSaving("Errore salvataggio");
+      console.error(e);
+    }
+  }, 450);
+
+  function removeFromAllAssignments(empId){
+    for(const depId of Object.keys(dayData.assignments)){
+      for(const s of ["s1","s2"]){
+        const arr = dayData.assignments[depId][s];
+        const idx = arr.indexOf(empId);
+        if(idx>=0) arr.splice(idx,1);
+      }
+    }
+  }
+
+  function addToAssignment(depId, shiftKey, empId){
+    removeFromAllAssignments(empId);
+    const arr = dayData.assignments[depId][shiftKey];
+    if(!arr.includes(empId)) arr.push(empId);
+  }
+
+  function computeAssignedSet(){
+    const set = new Set();
+    for(const depId of Object.keys(dayData.assignments)){
+      for(const s of ["s1","s2"]){
+        for(const id of dayData.assignments[depId][s]) set.add(id);
+      }
+    }
+    return set;
+  }
+
+  function renderAll(){
+    renderDepartmentsBoard();
+    renderPool();
+  }
+
+  function renderDepartmentsBoard(){
+    deptBoard.innerHTML = "";
+
+    for(const dep of departments){
+      const shifts = dep.shifts || {};
+      const s1 = shifts.s1 || { label:"Turno 1", start:"07:00", end:"13:00" };
+      const s2 = shifts.s2 || { label:"Turno 2", start:"13:00", end:"19:00" };
+
+      const wrap = document.createElement("div");
+      wrap.className = "dept";
+      wrap.innerHTML = `
+        <div class="dept-head">
+          <div>
+            <div class="dept-name">${escapeHtml(dep.name || dep.id)}</div>
+            <div class="dept-sub">${escapeHtml(s1.start)}–${escapeHtml(s1.end)} • ${escapeHtml(s2.start)}–${escapeHtml(s2.end)}</div>
+          </div>
+          <div class="badge">${escapeHtml(dep.id)}</div>
+        </div>
+
+        <div class="shift">
+          <div class="shift-title"><b>${escapeHtml(s1.label || "Turno 1")}</b><div class="small">${escapeHtml(s1.start)}–${escapeHtml(s1.end)}</div></div>
+          <div class="dropzone" data-dep="${dep.id}" data-shift="s1"></div>
+        </div>
+
+        <div class="shift">
+          <div class="shift-title"><b>${escapeHtml(s2.label || "Turno 2")}</b><div class="small">${escapeHtml(s2.start)}–${escapeHtml(s2.end)}</div></div>
+          <div class="dropzone" data-dep="${dep.id}" data-shift="s2"></div>
+        </div>
+      `;
+      deptBoard.appendChild(wrap);
+
+      // popola chips
+      for(const shiftKey of ["s1","s2"]){
+        const zone = wrap.querySelector(`.dropzone[data-shift="${shiftKey}"]`);
+        const ids = (dayData.assignments?.[dep.id]?.[shiftKey]) || [];
+        if(ids.length === 0){
+          zone.innerHTML = `<div class="small muted">Trascina qui i dipendenti</div>`;
+        } else {
+          zone.innerHTML = "";
+          ids.forEach(empId=>{
+            const emp = employees.find(e=>e.id===empId);
+            if(!emp) return;
+            const chip = document.createElement("div");
+            chip.className = "chip";
+            chip.innerHTML = `<span>${escapeHtml(emp.name)}</span><button title="Rimuovi">✕</button>`;
+            chip.querySelector("button").addEventListener("click", ()=>{
+              removeFromAllAssignments(empId);
+              saveDayDebounced();
+              renderAll();
+            });
+            zone.appendChild(chip);
+          });
+        }
+
+        // drag/drop handlers
+        zone.addEventListener("dragover", (ev)=>{ ev.preventDefault(); zone.classList.add("over"); });
+        zone.addEventListener("dragleave", ()=> zone.classList.remove("over"));
+        zone.addEventListener("drop", (ev)=>{
+          ev.preventDefault();
+          zone.classList.remove("over");
+          const depId = zone.getAttribute("data-dep");
+          const sk = zone.getAttribute("data-shift");
+          const empId = ev.dataTransfer.getData("text/plain") || draggingEmpId;
+          if(!empId) return;
+          addToAssignment(depId, sk, empId);
+          saveDayDebounced();
+          renderAll();
+        });
+      }
+    }
+  }
+
+  function renderPool(){
+    const q = ($("#search").value || "").trim().toLowerCase();
+    const assigned = computeAssignedSet();
+    const poolList = employees
+      .filter(e => !assigned.has(e.id))
+      .filter(e => !q || e.name.toLowerCase().includes(q));
+
+    poolCount.textContent = `${poolList.length} liberi`;
+
+    pool.innerHTML = "";
+    if(poolList.length === 0){
+      pool.innerHTML = `<div class="small muted">Nessun dipendente libero (o filtro attivo).</div>`;
+      return;
+    }
+    for(const e of poolList){
+      const row = document.createElement("div");
+      row.className = "employee";
+      row.draggable = true;
+      row.innerHTML = `
+        <div class="name">${escapeHtml(e.name)}</div>
+        <div class="pill">drag</div>
+      `;
+      row.addEventListener("dragstart", (ev)=>{
+        draggingEmpId = e.id;
+        ev.dataTransfer.setData("text/plain", e.id);
+        ev.dataTransfer.effectAllowed = "move";
+      });
+      row.addEventListener("dragend", ()=>{
+        draggingEmpId = null;
+      });
+      pool.appendChild(row);
+    }
+  }
+
+  // --- EXCEL EXPORT (settimana corrente) ---
+  async function exportExcel(){
+    const d = parseISODate(dayISO);
+    const weekStart = startOfWeek(d);
+    const days = [];
+    for(let i=0;i<7;i++){
+      const dd = new Date(weekStart);
+      dd.setDate(weekStart.getDate()+i);
+      days.push(formatISODate(dd));
+    }
+    const weekId = weekIdFromDate(d);
+
+    // carica tutti i days doc della settimana
+    const weekData = {}; // dayISO -> assignments
+    for(const di of days){
+      const ref = fb.doc(db, "schedules", weekId, "days", di);
+      const snap = await fb.getDoc(ref);
+      weekData[di] = snap.exists() ? (snap.data().assignments || {}) : {};
+    }
+
+    // carica SheetJS on-demand
+    const { utils, writeFile } = await import("https://cdn.sheetjs.com/xlsx-0.20.2/package/xlsx.mjs");
+
+    const header = ["REPARTO / TURNO", ...days.map(s=>s)];
+    const rows = [header];
+
+    for(const dep of departments){
+      const s1 = dep.shifts?.s1 || { label:"Turno 1", start:"07:00", end:"13:00" };
+      const s2 = dep.shifts?.s2 || { label:"Turno 2", start:"13:00", end:"19:00" };
+
+      // Riga compatta per reparto: in ogni cella metti T1/T2
+      const r = [`${dep.name}`];
+      for(const di of days){
+        const a = weekData[di]?.[dep.id] || { s1:[], s2:[] };
+        const names1 = (a.s1||[]).map(id => employees.find(e=>e.id===id)?.name).filter(Boolean);
+        const names2 = (a.s2||[]).map(id => employees.find(e=>e.id===id)?.name).filter(Boolean);
+        const cell = `T1 (${s1.start}-${s1.end}): ${names1.join(", ")}\nT2 (${s2.start}-${s2.end}): ${names2.join(", ")}`;
+        r.push(cell);
+      }
+      rows.push(r);
+    }
+
+    const ws = utils.aoa_to_sheet(rows);
+    ws["!cols"] = [{wch:22}, ...days.map(()=>({wch:34}))];
+
+    const wb = utils.book_new();
+    utils.book_append_sheet(wb, ws, "Programma");
+    writeFile(wb, `programma-magazzino_${weekId}.xlsx`);
+  }
+</script>
+</body>
+</html>
