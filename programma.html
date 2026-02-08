@@ -144,7 +144,8 @@ import { auth, db, fb } from "./js/firebase.js";
 
       if(!prevData || !prevData.assignments){
         alert("Nessun programma trovato per il giorno precedente (" + prevISO + ").");
-        setSaving("Pronto");
+        await loadAbsences();
+    setSaving("Pronto");
         return;
       }
 
@@ -210,7 +211,30 @@ import { auth, db, fb } from "./js/firebase.js";
     return fb.doc(db, "schedules", weekId, "days", dayISO);
   }
 
-  async function loadDay(){
+  
+  let absencesToday = { ferie: new Set(), permesso: new Set(), malattia: new Set() };
+
+  async function loadAbsences(){
+    absencesToday = { ferie: new Set(), permesso: new Set(), malattia: new Set() };
+    try{
+      const snap = await fb.getDocs(fb.collection(db, "settings_absences"));
+      snap.forEach(docu=>{
+        const a = docu.data() || {};
+        const from = a.from;
+        const to = a.to || a.from;
+        if(!a.empId || !a.type || !from) return;
+        if(currentDate >= from && currentDate <= to){
+          if(a.type === "ferie") absencesToday.ferie.add(a.empId);
+          if(a.type === "permesso") absencesToday.permesso.add(a.empId);
+          if(a.type === "malattia") absencesToday.malattia.add(a.empId);
+        }
+      });
+    }catch(e){
+      console.warn("Absences load failed", e);
+    }
+  }
+
+async function loadDay(){
     setSaving("Carico…");
     const ref = dayDocRef();
     const snap = await fb.getDoc(ref);
@@ -336,6 +360,9 @@ const saveDayDebounced = debounce(async ()=>{
       (slot.staff||[]).forEach(id=>set.add(id));
       if(slot.leader) set.add(slot.leader);
     }
+    absencesToday.ferie.forEach(id=>set.add(id));
+    absencesToday.permesso.forEach(id=>set.add(id));
+    absencesToday.malattia.forEach(id=>set.add(id));
     return set;
   }
 
@@ -345,8 +372,46 @@ const saveDayDebounced = debounce(async ()=>{
   }
   
 
+
 function renderDepartmentsBoard(){
   deptBoard.innerHTML = "";
+
+  // --- sezioni assenze (no orario)
+  const absenceWrap = document.createElement("div");
+  absenceWrap.className = "dept";
+  absenceWrap.innerHTML = `
+    <div class="dept-head">
+      <div>
+        <div class="dept-name">Assenze (auto)</div>
+        <div class="dept-sub">Ferie / Permessi / Malattia</div>
+      </div>
+      <div class="badge">${escapeHtml(currentDate)}</div>
+    </div>
+  `;
+  const absContent = document.createElement("div");
+  absContent.className = "content";
+  absContent.style.padding = "12px";
+  absContent.style.display = "flex";
+  absContent.style.flexDirection = "column";
+  absContent.style.gap = "12px";
+
+  function renderAbsBlock(title, setIds){
+    const box = document.createElement("div");
+    box.className = "shift";
+    box.style.gridTemplateColumns = "1fr";
+    const names = employees.filter(e=>setIds.has(e.id)).map(e=>e.name);
+    box.innerHTML = `
+      <div class="shift-title"><b>${escapeHtml(title)}</b></div>
+      <div class="dropzone" style="min-height:44px">${names.length ? names.map(n=>`<div class="chip"><span>${escapeHtml(n)}</span></div>`).join("") : '<div class="small muted">Nessuno</div>'}</div>
+    `;
+    return box;
+  }
+
+  absContent.appendChild(renderAbsBlock("Ferie", absencesToday.ferie));
+  absContent.appendChild(renderAbsBlock("Permessi", absencesToday.permesso));
+  absContent.appendChild(renderAbsBlock("Malattia", absencesToday.malattia));
+  absenceWrap.appendChild(absContent);
+  deptBoard.appendChild(absenceWrap);
 
   for(const dep of departments){
     const depShifts = dep.shifts || {};
@@ -356,9 +421,7 @@ function renderDepartmentsBoard(){
       return na - nb;
     });
 
-    const subdeps = (Array.isArray(dep.subdeps) && dep.subdeps.length)
-      ? dep.subdeps.slice().sort((a,b)=>(a.order||0)-(b.order||0))
-      : [{ id: "_main", name: (dep.name||dep.id), order: 0, shifts: depShifts, notes: dep.notes || "", isExtra: !!dep.isExtra }];
+    const hasSubdeps = Array.isArray(dep.subdeps) && dep.subdeps.length > 0;
 
     const wrap = document.createElement("div");
     wrap.className = "dept";
@@ -366,10 +429,10 @@ function renderDepartmentsBoard(){
       <div class="dept-head">
         <div>
           <div class="dept-name">${escapeHtml(dep.name || dep.id)}</div>
-          <div class="dept-sub">Sottoreparti: ${subdeps.length}</div>
+          <div class="dept-sub">${hasSubdeps ? "Con sottoreparti" : "Reparto"}${dep.isExtra ? " • Attività aggiuntiva" : ""}</div>
         </div>
         <div class="row" style="gap:8px">
-          ${subdeps[0].id === "_main" ? '<button class="btn secondary smallbtn" data-act="addShiftMain" type="button">+ Turno</button>' : ''}
+          <button class="btn secondary smallbtn" data-act="addShiftMain" type="button">+ Turno</button>
           <div class="badge">${escapeHtml(dep.id)}</div>
         </div>
       </div>
@@ -382,79 +445,50 @@ function renderDepartmentsBoard(){
     content.style.flexDirection = "column";
     content.style.gap = "12px";
 
-    for(const sd of subdeps){
-      const sdShifts = (sd.shifts && Object.keys(sd.shifts).length) ? sd.shifts : depShifts;
-      const shiftKeys = Object.keys(sdShifts).sort((a,b)=>{
-        const na = Number(a.replace(/\D/g,"")) || 0;
-        const nb = Number(b.replace(/\D/g,"")) || 0;
-        return na - nb;
-      });
+    // Notes reparto (sempre)
+    const notesBox = document.createElement("div");
+    notesBox.innerHTML = `
+      <div class="field" style="margin:0">
+        <label>NOTE (opzionali)</label>
+        <textarea data-act="notesDept" rows="2" placeholder="Note...">${escapeHtml(dep.notes || "")}</textarea>
+      </div>
+    `;
+    const deptNotesArea = notesBox.querySelector('textarea[data-act="notesDept"]');
+    deptNotesArea.addEventListener("input", ()=>{
+      const key = "notes||" + dep.id + "||_main";
+      if(shiftSaveTimers.has(key)) clearTimeout(shiftSaveTimers.get(key));
+      shiftSaveTimers.set(key, setTimeout(async ()=>{
+        try{
+          setSaving("Salvo note…");
+          await updateDepartment(dep.id, { notes: deptNotesArea.value });
+          await loadSetup(); await loadDay(); renderAll();
+          setSaving("Pronto");
+        }catch(e){ console.error(e); setSaving("Errore"); }
+      }, 450));
+    });
+    content.appendChild(notesBox);
 
-      const isExtra = (sd.id === "_main") ? !!dep.isExtra : !!sd.isExtra;
-      const notesVal = (sd.id === "_main") ? (dep.notes || "") : (sd.notes || "");
-
-      const sdBox = document.createElement("div");
-      sdBox.className = "dept";
-      sdBox.style.background = "rgba(255,255,255,.02)";
-      sdBox.innerHTML = `
-        <div class="dept-head" style="border-bottom: 1px solid rgba(255,255,255,.06)">
-          <div>
-            <div class="dept-name" style="font-size:14px">${escapeHtml(sd.name)}</div>
-            <div class="dept-sub">${sd.id === "_main" ? "Reparto" : "Sottoreparto"} ${isExtra ? "• Attività aggiuntiva" : ""}</div>
-          </div>
-          <div class="row" style="gap:8px;flex-wrap:wrap">
-            <button class="btn secondary smallbtn" data-act="addShiftSub" type="button">+ Turno</button>
-          </div>
-        </div>
-        <div class="content" style="padding:12px;display:flex;flex-direction:column;gap:10px">
-          <div class="field" style="margin:0">
-            <label>NOTE (opzionali)</label>
-            <textarea data-act="notes" rows="2" placeholder="Note...">${escapeHtml(notesVal)}</textarea>
-          </div>
-        </div>
-      `;
-      const sdContent = sdBox.querySelector(".content");
-
-      // save notes
-      const notesArea = sdBox.querySelector('textarea[data-act="notes"]');
-      notesArea.addEventListener("input", ()=>{
-        const key = "notes||" + dep.id + "||" + sd.id;
-        if(shiftSaveTimers.has(key)) clearTimeout(shiftSaveTimers.get(key));
-        shiftSaveTimers.set(key, setTimeout(async ()=>{
-          try{
-            setSaving("Salvo note…");
-            if(sd.id === "_main"){
-              await updateDepartment(dep.id, { notes: notesArea.value });
-            } else {
-              const nextSubdeps = updateSubdepArray(dep, sd.id, (x)=>{ x.notes = notesArea.value; return x; });
-              await updateDepartment(dep.id, { subdeps: nextSubdeps });
-            }
-            await loadSetup(); await loadDay(); renderAll();
-            setSaving("Pronto");
-          }catch(e){ console.error(e); setSaving("Errore"); }
-        }, 450));
-      });
-
-      if(shiftKeys.length === 0){
-        const empty = document.createElement("div");
-        empty.className = "small muted";
-        empty.textContent = "Nessun turno configurato. Aggiungi un turno.";
-        sdContent.appendChild(empty);
-      }
-
-      for(const shiftKey of shiftKeys){
-        const sft = sdShifts[shiftKey] || {};
+    // Render shifts: if no subdeps, use dept shift directly (no created _main box)
+    if(!hasSubdeps){
+      const sdId = "_main";
+      for(const shiftKey of depShiftKeys){
+        const sft = depShifts[shiftKey] || {};
         const label = sft.label || "Turno";
         const startT = sft.start || "08:00";
         const endT = sft.end || "17:00";
-
-        ensureSlot(dep.id, sd.id, shiftKey);
-        const slot = dayData.assignments[assignKey(dep.id, sd.id, shiftKey)];
+        ensureSlot(dep.id, sdId, shiftKey);
+        const slot = dayData.assignments[assignKey(dep.id, sdId, shiftKey)];
 
         const block = document.createElement("div");
         block.className = "shift";
         block.style.gridTemplateColumns = "1fr";
-        block.innerHTML = `
+        block.innerHTML = dep.isExtra ? `
+          <div class="shift-title"><b>${escapeHtml(label)}</b></div>
+          <div style="margin-top:10px">
+            <div class="small muted" style="margin-bottom:6px">Dipendente (attività aggiuntiva)</div>
+            <select data-act="extraSelect" class="select" style="width:100%"></select>
+          </div>
+        ` : `
           <div class="shift-title" style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center">
             <div style="min-width:180px;flex:1;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
               <b>${escapeHtml(label)}</b>
@@ -468,76 +502,19 @@ function renderDepartmentsBoard(){
             </div>
           </div>
 
-          ${isExtra ? `
-            <div style="margin-top:10px">
-              <div class="small muted" style="margin-bottom:6px">Dipendente (attività aggiuntiva)</div>
-              <select data-act="extraSelect" class="select" style="width:100%"></select>
-            </div>
-          ` : `
-            <div style="margin-top:10px">
-              <div class="small muted" style="margin-bottom:6px">Capoturno</div>
-              <div class="dropzone" data-role="leader" data-dep="${dep.id}" data-sub="${escapeHtml(sd.id)}" data-shift="${escapeHtml(shiftKey)}" style="min-height:44px"></div>
-            </div>
-            <div style="margin-top:10px">
-              <div class="small muted" style="margin-bottom:6px">Operatori</div>
-              <div class="dropzone" data-role="staff" data-dep="${dep.id}" data-sub="${escapeHtml(sd.id)}" data-shift="${escapeHtml(shiftKey)}"></div>
-            </div>
-          `}
+          <div style="margin-top:10px">
+            <div class="small muted" style="margin-bottom:6px">Capoturno</div>
+            <div class="dropzone" data-role="leader" data-dep="${dep.id}" data-sub="${sdId}" data-shift="${escapeHtml(shiftKey)}" style="min-height:44px"></div>
+          </div>
+
+          <div style="margin-top:10px">
+            <div class="small muted" style="margin-bottom:6px">Operatori</div>
+            <div class="dropzone" data-role="staff" data-dep="${dep.id}" data-sub="${sdId}" data-shift="${escapeHtml(shiftKey)}"></div>
+          </div>
         `;
 
-        // time editing
-        const inpStart = block.querySelector('[data-act="timeStart"]');
-        const inpEnd = block.querySelector('[data-act="timeEnd"]');
-        function onTimeChange(){
-          const newStart = inpStart.value || startT;
-          const newEnd = inpEnd.value || endT;
-          if(sd.id === "_main"){
-            const next = JSON.parse(JSON.stringify(depShifts));
-            next[shiftKey] = { ...(next[shiftKey]||{}), start: newStart, end: newEnd };
-            saveShiftDebounced(dep, "_main", next);
-          } else {
-            const nextSubdeps = updateSubdepArray(dep, sd.id, (x)=>{
-              const base = (x.shifts && Object.keys(x.shifts).length) ? x.shifts : {};
-              const next = JSON.parse(JSON.stringify(base));
-              next[shiftKey] = { ...(next[shiftKey]||{}), start: newStart, end: newEnd, label: (next[shiftKey]?.label || label) };
-              x.shifts = next;
-              return x;
-            });
-            saveShiftDebounced(dep, sd.id, nextSubdeps);
-          }
-        }
-        inpStart.addEventListener("input", onTimeChange);
-        inpEnd.addEventListener("input", onTimeChange);
-
-        // delete shift
-        block.querySelector('[data-act="delShift"]').addEventListener("click", async ()=>{
-          if(!confirm("Togliere questo turno?")) return;
-          try{
-            setSaving("Tolgo turno…");
-            if(sd.id === "_main"){
-              const next = JSON.parse(JSON.stringify(depShifts));
-              delete next[shiftKey];
-              if(Object.keys(next).length === 0){ alert("Deve rimanere almeno 1 turno."); setSaving("Pronto"); return; }
-              await updateDepartment(dep.id, { shifts: next });
-            } else {
-              const nextSubdeps = updateSubdepArray(dep, sd.id, (x)=>{
-                const base = (x.shifts && Object.keys(x.shifts).length) ? x.shifts : {};
-                const next = JSON.parse(JSON.stringify(base));
-                delete next[shiftKey];
-                x.shifts = next;
-                return x;
-              });
-              const after = nextSubdeps.find(x=>x.id===sd.id);
-              const afterShifts = after?.shifts || {};
-              if(Object.keys(afterShifts).length === 0){ alert("Deve rimanere almeno 1 turno."); setSaving("Pronto"); return; }
-              await updateDepartment(dep.id, { subdeps: nextSubdeps });
-            }
-            await loadSetup(); await loadDay(); renderAll();
-            setSaving("Pronto");
-          }catch(e){ console.error(e); setSaving("Errore"); }
-        });
-
-        if(isExtra){
+        // Extra select logic
+        if(dep.isExtra){
           const sel = block.querySelector('select[data-act="extraSelect"]');
           sel.innerHTML = `<option value="">—</option>` + employees
             .filter(e=>e.active !== false)
@@ -552,8 +529,35 @@ function renderDepartmentsBoard(){
             renderAll();
           });
         } else {
-          // leader/staff rendering + drag targets are handled by existing logic elsewhere (reuse v9 style)
-          // We keep minimal: rely on renderAll's pool drag start; but still need chip rendering here:
+          // time edit
+          const inpStart = block.querySelector('[data-act="timeStart"]');
+          const inpEnd = block.querySelector('[data-act="timeEnd"]');
+          function onTimeChange(){
+            const newStart = inpStart.value || startT;
+            const newEnd = inpEnd.value || endT;
+            const next = JSON.parse(JSON.stringify(depShifts));
+            next[shiftKey] = { ...(next[shiftKey]||{}), start: newStart, end: newEnd };
+            saveShiftDebounced(dep, "_main", next);
+          }
+          inpStart.addEventListener("input", onTimeChange);
+          inpEnd.addEventListener("input", onTimeChange);
+
+          // del shift
+          block.querySelector('[data-act="delShift"]').addEventListener("click", async ()=>{
+            if(!confirm("Togliere questo turno?")) return;
+            try{
+              setSaving("Tolgo turno…");
+              const next = JSON.parse(JSON.stringify(depShifts));
+              delete next[shiftKey];
+              if(Object.keys(next).length===0){ alert("Deve rimanere almeno 1 turno."); setSaving("Pronto"); return; }
+              await updateDepartment(dep.id, { shifts: next });
+              await loadSetup(); await loadDay(); renderAll();
+              setSaving("Pronto");
+            }catch(e){ console.error(e); setSaving("Errore"); }
+          });
+
+          // render leader/staff + drag targets (reuse helpers)
+          // leader
           const leaderZone = block.querySelector('.dropzone[data-role="leader"]');
           const leaderId = slot.leader;
           if(!leaderId) leaderZone.innerHTML = `<div class="small muted">Trascina qui il capoturno</div>`;
@@ -562,17 +566,16 @@ function renderDepartmentsBoard(){
             leaderZone.innerHTML = "";
             if(emp){
               const chip = document.createElement("div");
-              chip.className = "chip";
-              chip.draggable = true;
+              chip.className = "chip"; chip.draggable = true;
               chip.innerHTML = `<span>${escapeHtml(emp.name)}</span><button title="Rimuovi">✕</button>`;
               chip.addEventListener("dragstart", (ev)=>{ draggingEmpId = emp.id; ev.dataTransfer.setData("text/plain", emp.id); });
               chip.querySelector("button").addEventListener("click", ()=>{ slot.leader=null; saveDayDebounced(); renderAll(); });
               leaderZone.appendChild(chip);
             }
           }
-
+          // staff
           const staffZone = block.querySelector('.dropzone[data-role="staff"]');
-          const ids = slot.staff || [];
+          const ids = slot.staff||[];
           if(ids.length===0) staffZone.innerHTML = `<div class="small muted">Trascina qui i dipendenti</div>`;
           else {
             staffZone.innerHTML = "";
@@ -580,51 +583,226 @@ function renderDepartmentsBoard(){
               const emp = employees.find(e=>e.id===empId);
               if(!emp) return;
               const chip = document.createElement("div");
-              chip.className = "chip";
-              chip.draggable = true;
+              chip.className = "chip"; chip.draggable = true;
               chip.innerHTML = `<span>${escapeHtml(emp.name)}</span><button title="Rimuovi">✕</button>`;
               chip.addEventListener("dragstart", (ev)=>{ draggingEmpId = emp.id; ev.dataTransfer.setData("text/plain", emp.id); });
               chip.querySelector("button").addEventListener("click", ()=>{ removeFromAllAssignments(empId); saveDayDebounced(); renderAll(); });
               staffZone.appendChild(chip);
             });
           }
-
           block.querySelectorAll(".dropzone").forEach(zone=>{
             zone.addEventListener("dragover", (ev)=>{ ev.preventDefault(); zone.classList.add("over"); });
-            zone.addEventListener("dragleave", ()=> zone.classList.remove("over"));
+            zone.addEventListener("dragleave", ()=>zone.classList.remove("over"));
             zone.addEventListener("drop", (ev)=>{
-              ev.preventDefault();
-              zone.classList.remove("over");
-              const empId = ev.dataTransfer.getData("text/plain") || draggingEmpId;
+              ev.preventDefault(); zone.classList.remove("over");
+              const empId = ev.dataTransfer.getData("text/plain")||draggingEmpId;
               if(!empId) return;
-              const depId = zone.getAttribute("data-dep");
-              const subId = zone.getAttribute("data-sub");
-              const sk = zone.getAttribute("data-shift");
               const role = zone.getAttribute("data-role");
-              if(role === "leader") setLeader(depId, subId, sk, empId);
-              else addStaff(depId, subId, sk, empId);
-              saveDayDebounced();
-              renderAll();
+              if(role==="leader") setLeader(dep.id, sdId, shiftKey, empId);
+              else addStaff(dep.id, sdId, shiftKey, empId);
+              saveDayDebounced(); renderAll();
             });
           });
         }
 
-        sdContent.appendChild(block);
+        content.appendChild(block);
       }
+    } else {
+      // With subdeps: keep existing style but without auto-creating empty ones (use what exists only)
+      const subdeps = dep.subdeps.slice().sort((a,b)=>(a.order||0)-(b.order||0));
+      for(const sd of subdeps){
+        const sdShifts = (sd.shifts && Object.keys(sd.shifts).length) ? sd.shifts : depShifts;
+        const shiftKeys = Object.keys(sdShifts).sort((a,b)=>{
+          const na = Number(a.replace(/\D/g,"")) || 0;
+          const nb = Number(b.replace(/\D/g,"")) || 0;
+          return na - nb;
+        });
+        const isExtra = !!sd.isExtra;
+        const sdBox = document.createElement("div");
+        sdBox.className = "dept";
+        sdBox.style.background = "rgba(255,255,255,.02)";
+        sdBox.innerHTML = `
+          <div class="dept-head" style="border-bottom: 1px solid rgba(255,255,255,.06)">
+            <div>
+              <div class="dept-name" style="font-size:14px">${escapeHtml(sd.name)}</div>
+              <div class="dept-sub">Sottoreparto${isExtra ? " • Attività aggiuntiva" : ""}</div>
+            </div>
+            <div class="row" style="gap:8px;flex-wrap:wrap">
+              <button class="btn secondary smallbtn" data-act="addShiftSub" type="button">+ Turno</button>
+            </div>
+          </div>
+          <div class="content" style="padding:12px;display:flex;flex-direction:column;gap:10px">
+            <div class="field" style="margin:0">
+              <label>NOTE (opzionali)</label>
+              <textarea data-act="notesSub" rows="2" placeholder="Note...">${escapeHtml(sd.notes || "")}</textarea>
+            </div>
+          </div>
+        `;
+        const sdContent = sdBox.querySelector(".content");
 
-      sdBox.querySelector('[data-act="addShiftSub"]').addEventListener("click", async ()=>{
-        const start="08:00", end="17:00", label="Turno";
-        try{
-          setSaving("Aggiungo turno…");
-          const nums = shiftKeys.map(k=>Number(k.replace(/\D/g,""))||0);
-          const nextN = (Math.max(...nums, 0) + 1);
-          const newKey = "s" + nextN;
+        // note sub
+        const subNotesArea = sdBox.querySelector('textarea[data-act="notesSub"]');
+        subNotesArea.addEventListener("input", ()=>{
+          const key = "notes||" + dep.id + "||" + sd.id;
+          if(shiftSaveTimers.has(key)) clearTimeout(shiftSaveTimers.get(key));
+          shiftSaveTimers.set(key, setTimeout(async ()=>{
+            try{
+              setSaving("Salvo note…");
+              const nextSubdeps = updateSubdepArray(dep, sd.id, (x)=>{ x.notes=subNotesArea.value; return x; });
+              await updateDepartment(dep.id, { subdeps: nextSubdeps });
+              await loadSetup(); await loadDay(); renderAll();
+              setSaving("Pronto");
+            }catch(e){ console.error(e); setSaving("Errore"); }
+          }, 450));
+        });
 
-          if(sd.id === "_main"){
-            const next = JSON.parse(JSON.stringify(depShifts));
-            next[newKey] = { label, start, end };
-            await updateDepartment(dep.id, { shifts: next });
+        for(const shiftKey of shiftKeys){
+          const sft = sdShifts[shiftKey] || {};
+          const label = sft.label || "Turno";
+          const startT = sft.start || "08:00";
+          const endT = sft.end || "17:00";
+          ensureSlot(dep.id, sd.id, shiftKey);
+          const slot = dayData.assignments[assignKey(dep.id, sd.id, shiftKey)];
+
+          const block = document.createElement("div");
+          block.className = "shift";
+          block.style.gridTemplateColumns = "1fr";
+          block.innerHTML = isExtra ? `
+            <div class="shift-title"><b>${escapeHtml(label)}</b></div>
+            <div style="margin-top:10px">
+              <div class="small muted" style="margin-bottom:6px">Dipendente (attività aggiuntiva)</div>
+              <select data-act="extraSelect" class="select" style="width:100%"></select>
+            </div>
+          ` : `
+            <div class="shift-title" style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center">
+              <div style="min-width:180px;flex:1;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+                <b>${escapeHtml(label)}</b>
+                <span class="pill">${escapeHtml(startT)}–${escapeHtml(endT)}</span>
+              </div>
+              <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">
+                <input type="time" data-act="timeStart" value="${escapeHtml(startT)}" style="max-width:120px"/>
+                <span class="small muted">→</span>
+                <input type="time" data-act="timeEnd" value="${escapeHtml(endT)}" style="max-width:120px"/>
+                <button class="btn danger smallbtn" data-act="delShift" type="button">Togli</button>
+              </div>
+            </div>
+            <div style="margin-top:10px">
+              <div class="small muted" style="margin-bottom:6px">Capoturno</div>
+              <div class="dropzone" data-role="leader" data-dep="${dep.id}" data-sub="${escapeHtml(sd.id)}" data-shift="${escapeHtml(shiftKey)}" style="min-height:44px"></div>
+            </div>
+            <div style="margin-top:10px">
+              <div class="small muted" style="margin-bottom:6px">Operatori</div>
+              <div class="dropzone" data-role="staff" data-dep="${dep.id}" data-sub="${escapeHtml(sd.id)}" data-shift="${escapeHtml(shiftKey)}"></div>
+            </div>
+          `;
+          if(isExtra){
+            const sel = block.querySelector('select[data-act="extraSelect"]');
+            sel.innerHTML = `<option value="">—</option>` + employees
+              .filter(e=>e.active !== false)
+              .map(e=>`<option value="${e.id}">${escapeHtml(e.name)}</option>`)
+              .join("");
+            const current = (slot.staff && slot.staff[0]) ? slot.staff[0] : "";
+            sel.value = current;
+            sel.addEventListener("change", ()=>{
+              const val = sel.value || "";
+              slot.staff = val ? [val] : [];
+              saveDayDebounced(); renderAll();
+            });
           } else {
+            // drag/drop+time would mirror main; omitted here for brevity, relies on existing code paths? (but must work)
+            // For safety, keep simpler: treat like main non-extra (same as above) by reusing same inline logic from main
+            const inpStart = block.querySelector('[data-act="timeStart"]');
+            const inpEnd = block.querySelector('[data-act="timeEnd"]');
+            function onTimeChange(){
+              const newStart = inpStart.value || startT;
+              const newEnd = inpEnd.value || endT;
+              const nextSubdeps = updateSubdepArray(dep, sd.id, (x)=>{
+                const base = (x.shifts && Object.keys(x.shifts).length) ? x.shifts : {};
+                const next = JSON.parse(JSON.stringify(base));
+                next[shiftKey] = { ...(next[shiftKey]||{}), start: newStart, end: newEnd, label };
+                x.shifts = next;
+                return x;
+              });
+              saveShiftDebounced(dep, sd.id, nextSubdeps);
+            }
+            inpStart.addEventListener("input", onTimeChange);
+            inpEnd.addEventListener("input", onTimeChange);
+            block.querySelector('[data-act="delShift"]').addEventListener("click", async ()=>{
+              if(!confirm("Togliere questo turno?")) return;
+              try{
+                setSaving("Tolgo turno…");
+                const nextSubdeps = updateSubdepArray(dep, sd.id, (x)=>{
+                  const base = (x.shifts && Object.keys(x.shifts).length) ? x.shifts : {};
+                  const next = JSON.parse(JSON.stringify(base));
+                  delete next[shiftKey];
+                  x.shifts = next;
+                  return x;
+                });
+                const after = nextSubdeps.find(x=>x.id===sd.id);
+                const afterShifts = after?.shifts || {};
+                if(Object.keys(afterShifts).length===0){ alert("Deve rimanere almeno 1 turno."); setSaving("Pronto"); return; }
+                await updateDepartment(dep.id, { subdeps: nextSubdeps });
+                await loadSetup(); await loadDay(); renderAll();
+                setSaving("Pronto");
+              }catch(e){ console.error(e); setSaving("Errore"); }
+            });
+
+            const leaderZone = block.querySelector('.dropzone[data-role="leader"]');
+            const leaderId = slot.leader;
+            if(!leaderId) leaderZone.innerHTML = `<div class="small muted">Trascina qui il capoturno</div>`;
+            else {
+              const emp = employees.find(e=>e.id===leaderId);
+              leaderZone.innerHTML = "";
+              if(emp){
+                const chip = document.createElement("div");
+                chip.className = "chip"; chip.draggable = true;
+                chip.innerHTML = `<span>${escapeHtml(emp.name)}</span><button title="Rimuovi">✕</button>`;
+                chip.addEventListener("dragstart", (ev)=>{ draggingEmpId = emp.id; ev.dataTransfer.setData("text/plain", emp.id); });
+                chip.querySelector("button").addEventListener("click", ()=>{ slot.leader=null; saveDayDebounced(); renderAll(); });
+                leaderZone.appendChild(chip);
+              }
+            }
+            const staffZone = block.querySelector('.dropzone[data-role="staff"]');
+            const ids = slot.staff||[];
+            if(ids.length==0) staffZone.innerHTML = `<div class="small muted">Trascina qui i dipendenti</div>`;
+            else {
+              staffZone.innerHTML = "";
+              ids.forEach(empId=>{
+                const emp = employees.find(e=>e.id===empId);
+                if(!emp) return;
+                const chip = document.createElement("div");
+                chip.className = "chip"; chip.draggable = true;
+                chip.innerHTML = `<span>${escapeHtml(emp.name)}</span><button title="Rimuovi">✕</button>`;
+                chip.addEventListener("dragstart", (ev)=>{ draggingEmpId = emp.id; ev.dataTransfer.setData("text/plain", emp.id); });
+                chip.querySelector("button").addEventListener("click", ()=>{ removeFromAllAssignments(empId); saveDayDebounced(); renderAll(); });
+                staffZone.appendChild(chip);
+              });
+            }
+            block.querySelectorAll(".dropzone").forEach(zone=>{
+              zone.addEventListener("dragover", (ev)=>{ ev.preventDefault(); zone.classList.add("over"); });
+              zone.addEventListener("dragleave", ()=>zone.classList.remove("over"));
+              zone.addEventListener("drop", (ev)=>{
+                ev.preventDefault(); zone.classList.remove("over");
+                const empId = ev.dataTransfer.getData("text/plain")||draggingEmpId;
+                if(!empId) return;
+                const role = zone.getAttribute("data-role");
+                if(role==="leader") setLeader(dep.id, sd.id, shiftKey, empId);
+                else addStaff(dep.id, sd.id, shiftKey, empId);
+                saveDayDebounced(); renderAll();
+              });
+            });
+          }
+          sdContent.appendChild(block);
+        }
+
+        // Add shift button for this subdep
+        sdBox.querySelector('[data-act="addShiftSub"]').addEventListener("click", async ()=>{
+          const start="08:00", end="17:00", label="Turno";
+          try{
+            setSaving("Aggiungo turno…");
+            const nums = shiftKeys.map(k=>Number(k.replace(/\D/g,""))||0);
+            const nextN = (Math.max(...nums, 0) + 1);
+            const newKey = "s" + nextN;
             const nextSubdeps = updateSubdepArray(dep, sd.id, (x)=>{
               const base = (x.shifts && Object.keys(x.shifts).length) ? x.shifts : {};
               const next = JSON.parse(JSON.stringify(base));
@@ -633,39 +811,36 @@ function renderDepartmentsBoard(){
               return x;
             });
             await updateDepartment(dep.id, { subdeps: nextSubdeps });
-          }
+            await loadSetup(); await loadDay(); renderAll();
+            setSaving("Pronto");
+          }catch(e){ console.error(e); setSaving("Errore"); }
+        });
 
-          await loadSetup(); await loadDay(); renderAll();
-          setSaving("Pronto");
-        }catch(e){ console.error(e); setSaving("Errore"); }
-      });
-
-      content.appendChild(sdBox);
+        content.appendChild(sdBox);
+      }
     }
 
     wrap.appendChild(content);
     deptBoard.appendChild(wrap);
 
-    const btnMain = wrap.querySelector('[data-act="addShiftMain"]');
-    if(btnMain){
-      btnMain.addEventListener("click", async ()=>{
-        const start="08:00", end="17:00", label="Turno";
-        try{
-          setSaving("Aggiungo turno…");
-          const nums = depShiftKeys.map(k=>Number(k.replace(/\D/g,""))||0);
-          const nextN = (Math.max(...nums, 0) + 1);
-          const newKey = "s" + nextN;
-          const next = JSON.parse(JSON.stringify(depShifts));
-          next[newKey] = { label, start, end };
-          await updateDepartment(dep.id, { shifts: next });
-          await loadSetup(); await loadDay(); renderAll();
-          setSaving("Pronto");
-        }catch(e){ console.error(e); setSaving("Errore"); }
-      });
-    }
+    // Add shift main
+    wrap.querySelector('[data-act="addShiftMain"]').addEventListener("click", async ()=>{
+      const start="08:00", end="17:00", label="Turno";
+      try{
+        setSaving("Aggiungo turno…");
+        const nums = depShiftKeys.map(k=>Number(k.replace(/\D/g,""))||0);
+        const nextN = (Math.max(...nums, 0) + 1);
+        const newKey = "s" + nextN;
+        const next = JSON.parse(JSON.stringify(depShifts));
+        next[newKey] = { label, start, end };
+        await updateDepartment(dep.id, { shifts: next });
+        await loadSetup(); await loadDay(); renderAll();
+        setSaving("Pronto");
+      }catch(e){ console.error(e); setSaving("Errore"); }
+    });
   }
 }
-function renderPool(){
+function renderPool({
     const q = ($("#search").value || "").trim().toLowerCase();
     const assigned = computeAssignedSet();
     const poolList = employees

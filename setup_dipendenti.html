@@ -44,6 +44,37 @@
           <div class="small muted" style="margin-top:8px">Suggerimento: usa nomi brevi (nome + iniziale) per farli entrare bene nel PDF/Excel.</div>
 
           <hr class="sep"/>
+          <h3 style="margin:10px 0 6px 0">Assenze (Ferie / Permessi / Malattia)</h3>
+          <div class="row" style="gap:10px;flex-wrap:wrap">
+            <div class="field" style="min-width:220px;flex:1">
+              <label>Dipendente</label>
+              <select id="absEmp" class="select"></select>
+            </div>
+            <div class="field" style="min-width:200px">
+              <label>Tipo</label>
+              <select id="absType" class="select">
+                <option value="ferie">Ferie</option>
+                <option value="permesso">Permesso</option>
+                <option value="malattia">Malattia</option>
+              </select>
+            </div>
+            <div class="field" style="min-width:150px">
+              <label>Dal</label>
+              <input id="absFrom" type="date"/>
+            </div>
+            <div class="field" style="min-width:150px">
+              <label>Al</label>
+              <input id="absTo" type="date"/>
+            </div>
+            <div class="field" style="min-width:140px">
+              <label>&nbsp;</label>
+              <button class="btn" id="btnAddAbs" type="button">Aggiungi</button>
+            </div>
+          </div>
+          <div class="small" id="absMsg" style="margin-top:8px"></div>
+          <div id="absList" style="margin-top:8px;display:flex;flex-direction:column;gap:8px"></div>
+
+          <hr class="sep"/>
           <div id="empList" class="row" style="flex-direction:column;align-items:stretch;gap:8px"></div>
         </div>
       </div>
@@ -70,6 +101,7 @@
     if(!user){ location.href="./index.html"; return; }
     $("#authState").textContent = user.email || "LOGGATO";
     await renderEmployees();
+    await renderAbsences();
   });
 
   $("#btnLogout").addEventListener("click", async ()=>{
@@ -100,11 +132,13 @@
       row.querySelector('[data-act="toggle"]').addEventListener("click", async ()=>{
         await fb.updateDoc(fb.doc(db, "settings_employees", docu.id), { active: !(e.active === false) });
         await renderEmployees();
+    await renderAbsences();
       });
       row.querySelector('[data-act="del"]').addEventListener("click", async ()=>{
         if(!confirm("Eliminare il dipendente?")) return;
         await fb.deleteDoc(fb.doc(db, "settings_employees", docu.id));
         await renderEmployees();
+    await renderAbsences();
       });
       empList.appendChild(row);
     });
@@ -118,11 +152,97 @@
       await fb.addDoc(fb.collection(db, "settings_employees"), { name, active:true, createdAt: Date.now() });
       $("#empName").value = "";
       await renderEmployees();
+    await renderAbsences();
       say("Dipendente aggiunto.");
     }catch(e){
       console.error(e);
       say("Errore: " + (e?.message || e));
       alert("Errore aggiunta dipendente: " + (e?.message || e));
+    }
+  });
+
+  const absEmp = $("#absEmp");
+  const absMsg = $("#absMsg");
+  const absList = $("#absList");
+
+  function absSay(t){ absMsg.textContent = t || ""; if(t) setTimeout(()=>absMsg.textContent="", 2600); }
+
+  async function renderAbsences(){
+    absList.innerHTML = "";
+    // fill employee select
+    absEmp.innerHTML = `<option value="">—</option>` + employeesCache
+      .filter(e=>e.active !== false)
+      .map(e=>`<option value="${e.id}">${escapeHtml(e.name)}</option>`)
+      .join("");
+
+    const q = fb.query(fb.collection(db, "settings_absences"), fb.orderBy("from"));
+    const snap = await fb.getDocs(q);
+    if(snap.empty){
+      absList.innerHTML = '<div class="small muted">Nessuna assenza impostata.</div>';
+      return;
+    }
+    snap.forEach(docu=>{
+      const a = docu.data();
+      const row = document.createElement("div");
+      row.className = "employee";
+      row.innerHTML = `
+        <div>
+          <div class="name">${escapeHtml(a.empName || a.empId || "")}</div>
+          <div class="small muted">${escapeHtml(a.type)} • ${escapeHtml(a.from)} → ${escapeHtml(a.to)}</div>
+        </div>
+        <div class="row" style="gap:8px">
+          <button class="btn danger smallbtn" data-act="del" type="button">Elimina</button>
+        </div>
+      `;
+      row.querySelector('[data-act="del"]').addEventListener("click", async ()=>{
+        if(!confirm("Eliminare questa assenza?")) return;
+        await fb.deleteDoc(fb.doc(db, "settings_absences", docu.id));
+        await renderAbsences();
+      });
+      absList.appendChild(row);
+    });
+  }
+
+  // Cache dipendenti per uso assenze
+  let employeesCache = [];
+  async function loadEmployeesCache(){
+    const q = fb.query(fb.collection(db, "settings_employees"), fb.orderBy("name"));
+    const snap = await fb.getDocs(q);
+    employeesCache = [];
+    snap.forEach(d=> employeesCache.push({ id:d.id, ...d.data() }));
+  }
+
+  // patch renderEmployees to refresh cache
+  const _origRenderEmployees = renderEmployees;
+  renderEmployees = async function(){
+    await loadEmployeesCache();
+    await _origRenderEmployees();
+  }
+
+  $("#btnAddAbs").addEventListener("click", async ()=>{
+    absSay("");
+    const empId = absEmp.value;
+    const type = $("#absType").value;
+    const from = $("#absFrom").value;
+    const to = $("#absTo").value || from;
+    if(!empId || !from){ absSay("Seleziona dipendente e data DAL."); return; }
+    const emp = employeesCache.find(e=>e.id===empId);
+    try{
+      await fb.addDoc(fb.collection(db, "settings_absences"), {
+        empId,
+        empName: emp?.name || "",
+        type,
+        from,
+        to,
+        createdAt: Date.now()
+      });
+      $("#absFrom").value = "";
+      $("#absTo").value = "";
+      absSay("Assenza aggiunta.");
+      await renderAbsences();
+    }catch(e){
+      console.error(e);
+      alert("Errore assenza: " + (e?.message || e));
     }
   });
 </script>

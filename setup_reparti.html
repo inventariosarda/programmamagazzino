@@ -112,6 +112,8 @@
         shifts: DEFAULT_SHIFTS,
         notes: "",
         isExtra: false,
+        notes: "",
+        isExtra: false,
         subdeps: []
       });
       $("#newDeptName").value = "";
@@ -169,17 +171,35 @@
       }).join('<hr class="sep"/>');
 
       const subHtml = subdeps.slice().sort((a,b)=> (a.order||0)-(b.order||0)).map(sd=>`
-        <div class="employee" style="cursor:default">
-          <div>
-            <div class="name">${escapeHtml(sd.name)}</div>
-            <div class="small muted">Sottoreparto ${sd.isExtra ? "• Attività aggiuntiva" : ""}${sd.notes ? " • " + escapeHtml(sd.notes).slice(0,40) : ""}</div>
+        <div class="employee" style="cursor:default;flex-direction:column;align-items:stretch;gap:8px">
+          <div class="row" style="justify-content:space-between;gap:10px">
+            <div>
+              <div class="name">${escapeHtml(sd.name)}</div>
+              <div class="small muted">Sottoreparto</div>
+            </div>
+            <div class="row" style="gap:8px">
+              <span class="pill">${sd.isExtra ? "Attività aggiuntiva" : "Standard"}</span>
+              <button class="btn secondary smallbtn" data-act="editSub" data-sub="${escapeHtml(sd.id)}" type="button">Rinomina</button>
+              <button class="btn danger smallbtn" data-act="delSub" data-sub="${escapeHtml(sd.id)}" type="button">Elimina</button>
+            </div>
           </div>
-          <div class="row" style="gap:8px">
-            <button class="btn secondary smallbtn" data-act="editSub" data-sub="${escapeHtml(sd.id)}" type="button">Rinomina</button>
-            <button class="btn danger smallbtn" data-act="delSub" data-sub="${escapeHtml(sd.id)}" type="button">Elimina</button>
+
+          <div class="row" style="gap:10px;flex-wrap:wrap">
+            <div class="field" style="flex:1;min-width:260px;margin:0">
+              <label>Note sottoreparto</label>
+              <textarea data-act="subNotes" data-sub="${escapeHtml(sd.id)}" rows="2" placeholder="Note...">${escapeHtml(sd.notes || "")}</textarea>
+            </div>
+            <div class="field" style="min-width:240px;margin:0">
+              <label>Attività aggiuntiva</label>
+              <div class="row" style="gap:10px;align-items:center">
+                <input type="checkbox" data-act="subExtra" data-sub="${escapeHtml(sd.id)}" ${sd.isExtra ? "checked" : ""}/>
+                <span class="small muted">Menu in PROGRAMMA</span>
+              </div>
+            </div>
           </div>
         </div>
       `).join("");
+
 
       box.innerHTML = `
         <div class="dept-head">
@@ -251,6 +271,12 @@
       });
       box.querySelector('input[data-k="name"]').addEventListener("input", (ev)=>{
         saveDeptDebounced(docu.id, { name: ev.target.value });
+      });
+      box.querySelector('textarea[data-k=\"notes\"]').addEventListener(\"input\", (ev)=>{
+        saveDeptDebounced(docu.id, { notes: ev.target.value });
+      });
+      box.querySelector('input[type=\"checkbox\"][data-k=\"isExtra\"]').addEventListener(\"change\", (ev)=>{
+        saveDeptDebounced(docu.id, { isExtra: ev.target.checked });
       });
 
       box.querySelectorAll('[data-area="shifts"] input').forEach(inp=>{
