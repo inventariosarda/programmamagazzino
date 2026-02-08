@@ -272,10 +272,10 @@
       box.querySelector('input[data-k="name"]').addEventListener("input", (ev)=>{
         saveDeptDebounced(docu.id, { name: ev.target.value });
       });
-      box.querySelector('textarea[data-k=\"notes\"]').addEventListener(\"input\", (ev)=>{
+      box.querySelector('textarea[data-k="notes"]').addEventListener("input", (ev)=>{
         saveDeptDebounced(docu.id, { notes: ev.target.value });
       });
-      box.querySelector('input[type=\"checkbox\"][data-k=\"isExtra\"]').addEventListener(\"change\", (ev)=>{
+      box.querySelector('input[type="checkbox"][data-k="isExtra"]').addEventListener("change", (ev)=>{
         saveDeptDebounced(docu.id, { isExtra: ev.target.checked });
       });
 

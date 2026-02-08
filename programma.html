@@ -135,7 +135,7 @@ import { auth, db, fb } from "./js/firebase.js";
     if(!confirm("Vuoi duplicare il programma del giorno precedente su questo giorno? (Sovrascrive le assegnazioni di oggi)")) return;
     try{
       setSaving("Duplico…");
-      const cur = new Date(currentDate + "T00:00:00");
+      const cur = new Date(dayISO + "T00:00:00");
       const prev = new Date(cur.getTime() - 24*60*60*1000);
       const prevISO = prev.toISOString().slice(0,10);
 
@@ -150,7 +150,7 @@ import { auth, db, fb } from "./js/firebase.js";
       }
 
       dayData.assignments = JSON.parse(JSON.stringify(prevData.assignments));
-      await fb.setDoc(fb.doc(db, "program_days", currentDate), dayData, { merge: true });
+      await fb.setDoc(fb.doc(db, "program_days", dayISO), dayData, { merge: true });
       renderAll();
       setSaving("Duplicato");
       setTimeout(()=>setSaving("Pronto"), 1200);
@@ -223,7 +223,7 @@ import { auth, db, fb } from "./js/firebase.js";
         const from = a.from;
         const to = a.to || a.from;
         if(!a.empId || !a.type || !from) return;
-        if(currentDate >= from && currentDate <= to){
+        if(dayISO >= from && dayISO <= to){
           if(a.type === "ferie") absencesToday.ferie.add(a.empId);
           if(a.type === "permesso") absencesToday.permesso.add(a.empId);
           if(a.type === "malattia") absencesToday.malattia.add(a.empId);
@@ -385,7 +385,7 @@ function renderDepartmentsBoard(){
         <div class="dept-name">Assenze (auto)</div>
         <div class="dept-sub">Ferie / Permessi / Malattia</div>
       </div>
-      <div class="badge">${escapeHtml(currentDate)}</div>
+      <div class="badge">${escapeHtml(dayISO)}</div>
     </div>
   `;
   const absContent = document.createElement("div");
@@ -840,7 +840,7 @@ function renderDepartmentsBoard(){
     });
   }
 }
-function renderPool(){
+function renderPool({
     const q = ($("#search").value || "").trim().toLowerCase();
     const assigned = computeAssignedSet();
     const poolList = employees
