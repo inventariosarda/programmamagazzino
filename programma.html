@@ -36,6 +36,7 @@
 
         <a class="btn secondary" href="./setup_dipendenti.html">Setup Dipendenti</a>
         <a class="btn secondary" href="./setup_reparti.html">Setup Reparti</a>
+        <button class="btn secondary" id="btnCopyPrev" type="button">Duplica giorno precedente</button>
         <button class="btn" id="btnPrint" type="button">Stampa PDF</button>
         <button class="btn secondary" id="btnExcel" type="button">Excel</button>
         <button class="btn danger" id="btnLogout">Esci</button>
@@ -128,6 +129,35 @@ import { auth, db, fb } from "./js/firebase.js";
     initDate(formatISODate(d));
     await loadDay();
     renderAll();
+  });
+
+  $("#btnCopyPrev").addEventListener("click", async ()=>{
+    if(!confirm("Vuoi duplicare il programma del giorno precedente su questo giorno? (Sovrascrive le assegnazioni di oggi)")) return;
+    try{
+      setSaving("Duplico…");
+      const cur = new Date(currentDate + "T00:00:00");
+      const prev = new Date(cur.getTime() - 24*60*60*1000);
+      const prevISO = prev.toISOString().slice(0,10);
+
+      const prevDoc = await fb.getDoc(fb.doc(db, "program_days", prevISO));
+      const prevData = prevDoc.exists() ? (prevDoc.data() || {}) : null;
+
+      if(!prevData || !prevData.assignments){
+        alert("Nessun programma trovato per il giorno precedente (" + prevISO + ").");
+        setSaving("Pronto");
+        return;
+      }
+
+      dayData.assignments = JSON.parse(JSON.stringify(prevData.assignments));
+      await fb.setDoc(fb.doc(db, "program_days", currentDate), dayData, { merge: true });
+      renderAll();
+      setSaving("Duplicato");
+      setTimeout(()=>setSaving("Pronto"), 1200);
+    }catch(e){
+      console.error(e);
+      alert("Errore duplicazione: " + (e?.message || e));
+      setSaving("Errore");
+    }
   });
 
   datePick.addEventListener("change", async ()=>{
@@ -314,128 +344,220 @@ const saveDayDebounced = debounce(async ()=>{
     renderPool();
   }
   
-function renderDepartmentsBoard(){
-    deptBoard.innerHTML = "";
 
-    for(const dep of departments){
-      const depShifts = dep.shifts || {};
-      const depShiftKeys = Object.keys(depShifts).sort((a,b)=>{
+function renderDepartmentsBoard(){
+  deptBoard.innerHTML = "";
+
+  for(const dep of departments){
+    const depShifts = dep.shifts || {};
+    const depShiftKeys = Object.keys(depShifts).sort((a,b)=>{
+      const na = Number(a.replace(/\D/g,"")) || 0;
+      const nb = Number(b.replace(/\D/g,"")) || 0;
+      return na - nb;
+    });
+
+    const subdeps = (Array.isArray(dep.subdeps) && dep.subdeps.length)
+      ? dep.subdeps.slice().sort((a,b)=>(a.order||0)-(b.order||0))
+      : [{ id: "_main", name: (dep.name||dep.id), order: 0, shifts: depShifts, notes: dep.notes || "", isExtra: !!dep.isExtra }];
+
+    const wrap = document.createElement("div");
+    wrap.className = "dept";
+    wrap.innerHTML = `
+      <div class="dept-head">
+        <div>
+          <div class="dept-name">${escapeHtml(dep.name || dep.id)}</div>
+          <div class="dept-sub">Sottoreparti: ${subdeps.length}</div>
+        </div>
+        <div class="row" style="gap:8px">
+          ${subdeps[0].id === "_main" ? '<button class="btn secondary smallbtn" data-act="addShiftMain" type="button">+ Turno</button>' : ''}
+          <div class="badge">${escapeHtml(dep.id)}</div>
+        </div>
+      </div>
+    `;
+
+    const content = document.createElement("div");
+    content.className = "content";
+    content.style.padding = "12px";
+    content.style.display = "flex";
+    content.style.flexDirection = "column";
+    content.style.gap = "12px";
+
+    for(const sd of subdeps){
+      const sdShifts = (sd.shifts && Object.keys(sd.shifts).length) ? sd.shifts : depShifts;
+      const shiftKeys = Object.keys(sdShifts).sort((a,b)=>{
         const na = Number(a.replace(/\D/g,"")) || 0;
         const nb = Number(b.replace(/\D/g,"")) || 0;
         return na - nb;
       });
 
-      const subdeps = (Array.isArray(dep.subdeps) && dep.subdeps.length)
-        ? dep.subdeps.slice().sort((a,b)=>(a.order||0)-(b.order||0))
-        : [{ id: "_main", name: (dep.name||dep.id), order: 0, shifts: depShifts }];
+      const isExtra = (sd.id === "_main") ? !!dep.isExtra : !!sd.isExtra;
+      const notesVal = (sd.id === "_main") ? (dep.notes || "") : (sd.notes || "");
 
-      const wrap = document.createElement("div");
-      wrap.className = "dept";
-
-      wrap.innerHTML = `
-        <div class="dept-head">
+      const sdBox = document.createElement("div");
+      sdBox.className = "dept";
+      sdBox.style.background = "rgba(255,255,255,.02)";
+      sdBox.innerHTML = `
+        <div class="dept-head" style="border-bottom: 1px solid rgba(255,255,255,.06)">
           <div>
-            <div class="dept-name">${escapeHtml(dep.name || dep.id)}</div>
-            <div class="dept-sub">Sottoreparti: ${subdeps.length}</div>
+            <div class="dept-name" style="font-size:14px">${escapeHtml(sd.name)}</div>
+            <div class="dept-sub">${sd.id === "_main" ? "Reparto" : "Sottoreparto"} ${isExtra ? "• Attività aggiuntiva" : ""}</div>
           </div>
-          <div class="row" style="gap:8px">
-            ${subdeps[0].id === "_main" ? '<button class="btn secondary smallbtn" data-act="addShiftMain" type="button">+ Turno</button>' : ''}
-            <div class="badge">${escapeHtml(dep.id)}</div>
+          <div class="row" style="gap:8px;flex-wrap:wrap">
+            <button class="btn secondary smallbtn" data-act="addShiftSub" type="button">+ Turno</button>
+          </div>
+        </div>
+        <div class="content" style="padding:12px;display:flex;flex-direction:column;gap:10px">
+          <div class="field" style="margin:0">
+            <label>NOTE (opzionali)</label>
+            <textarea data-act="notes" rows="2" placeholder="Note...">${escapeHtml(notesVal)}</textarea>
           </div>
         </div>
       `;
+      const sdContent = sdBox.querySelector(".content");
 
-      const content = document.createElement("div");
-      content.className = "content";
-      content.style.padding = "12px";
-      content.style.display = "flex";
-      content.style.flexDirection = "column";
-      content.style.gap = "12px";
+      // save notes
+      const notesArea = sdBox.querySelector('textarea[data-act="notes"]');
+      notesArea.addEventListener("input", ()=>{
+        const key = "notes||" + dep.id + "||" + sd.id;
+        if(shiftSaveTimers.has(key)) clearTimeout(shiftSaveTimers.get(key));
+        shiftSaveTimers.set(key, setTimeout(async ()=>{
+          try{
+            setSaving("Salvo note…");
+            if(sd.id === "_main"){
+              await updateDepartment(dep.id, { notes: notesArea.value });
+            } else {
+              const nextSubdeps = updateSubdepArray(dep, sd.id, (x)=>{ x.notes = notesArea.value; return x; });
+              await updateDepartment(dep.id, { subdeps: nextSubdeps });
+            }
+            await loadSetup(); await loadDay(); renderAll();
+            setSaving("Pronto");
+          }catch(e){ console.error(e); setSaving("Errore"); }
+        }, 450));
+      });
 
-      for(const sd of subdeps){
-        const sdShifts = (sd.shifts && Object.keys(sd.shifts).length) ? sd.shifts : depShifts;
-        const shiftKeys = Object.keys(sdShifts).sort((a,b)=>{
-          const na = Number(a.replace(/\D/g,"")) || 0;
-          const nb = Number(b.replace(/\D/g,"")) || 0;
-          return na - nb;
-        });
+      if(shiftKeys.length === 0){
+        const empty = document.createElement("div");
+        empty.className = "small muted";
+        empty.textContent = "Nessun turno configurato. Aggiungi un turno.";
+        sdContent.appendChild(empty);
+      }
 
-        const sdBox = document.createElement("div");
-        sdBox.className = "dept";
-        sdBox.style.background = "rgba(255,255,255,.02)";
+      for(const shiftKey of shiftKeys){
+        const sft = sdShifts[shiftKey] || {};
+        const label = sft.label || "Turno";
+        const startT = sft.start || "08:00";
+        const endT = sft.end || "17:00";
 
-        sdBox.innerHTML = `
-          <div class="dept-head" style="border-bottom: 1px solid rgba(255,255,255,.06)">
-            <div>
-              <div class="dept-name" style="font-size:14px">${escapeHtml(sd.name)}</div>
-              <div class="dept-sub">${sd.id === "_main" ? "Reparto" : "Sottoreparto"}</div>
+        ensureSlot(dep.id, sd.id, shiftKey);
+        const slot = dayData.assignments[assignKey(dep.id, sd.id, shiftKey)];
+
+        const block = document.createElement("div");
+        block.className = "shift";
+        block.style.gridTemplateColumns = "1fr";
+        block.innerHTML = `
+          <div class="shift-title" style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center">
+            <div style="min-width:180px;flex:1;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+              <b>${escapeHtml(label)}</b>
+              <span class="pill">${escapeHtml(startT)}–${escapeHtml(endT)}</span>
             </div>
-            <div class="row" style="gap:8px">
-              <button class="btn secondary smallbtn" data-act="addShiftSub" type="button">+ Turno</button>
+            <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">
+              <input type="time" data-act="timeStart" value="${escapeHtml(startT)}" style="max-width:120px"/>
+              <span class="small muted">→</span>
+              <input type="time" data-act="timeEnd" value="${escapeHtml(endT)}" style="max-width:120px"/>
+              <button class="btn danger smallbtn" data-act="delShift" type="button">Togli</button>
             </div>
           </div>
-        `;
 
-        const sdContent = document.createElement("div");
-        sdContent.className = "content";
-        sdContent.style.padding = "12px";
-        sdContent.style.display = "flex";
-        sdContent.style.flexDirection = "column";
-        sdContent.style.gap = "10px";
-
-        if(shiftKeys.length === 0){
-          const empty = document.createElement("div");
-          empty.className = "small muted";
-          empty.textContent = "Nessun turno configurato. Aggiungi un turno.";
-          sdContent.appendChild(empty);
-        }
-
-        for(const shiftKey of shiftKeys){
-          const sft = sdShifts[shiftKey] || {};
-          const label = sft.label || "Turno";
-          const startT = sft.start || "08:00";
-          const endT = sft.end || "17:00";
-
-          ensureSlot(dep.id, sd.id, shiftKey);
-          const slot = dayData.assignments[assignKey(dep.id, sd.id, shiftKey)];
-
-          const block = document.createElement("div");
-          block.className = "shift";
-          block.style.gridTemplateColumns = "1fr";
-          block.innerHTML = `
-            <div class="shift-title" style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:flex-end">
-              <div style="min-width:200px;flex:1">
-                <b>${escapeHtml(label)}</b>
-              </div>
-              <div class="row" style="gap:8px;align-items:flex-end;flex-wrap:wrap">
-                <div class="field" style="min-width:140px;margin:0">
-                  <label>Inizio</label>
-                  <input type="time" data-act="timeStart" value="${escapeHtml(startT)}"/>
-                </div>
-                <div class="field" style="min-width:140px;margin:0">
-                  <label>Fine</label>
-                  <input type="time" data-act="timeEnd" value="${escapeHtml(endT)}"/>
-                </div>
-                <button class="btn danger smallbtn" data-act="delShift" type="button">Togli turno</button>
-              </div>
+          ${isExtra ? `
+            <div style="margin-top:10px">
+              <div class="small muted" style="margin-bottom:6px">Dipendente (attività aggiuntiva)</div>
+              <select data-act="extraSelect" class="select" style="width:100%"></select>
             </div>
-
+          ` : `
             <div style="margin-top:10px">
               <div class="small muted" style="margin-bottom:6px">Capoturno</div>
               <div class="dropzone" data-role="leader" data-dep="${dep.id}" data-sub="${escapeHtml(sd.id)}" data-shift="${escapeHtml(shiftKey)}" style="min-height:44px"></div>
             </div>
-
             <div style="margin-top:10px">
               <div class="small muted" style="margin-bottom:6px">Operatori</div>
               <div class="dropzone" data-role="staff" data-dep="${dep.id}" data-sub="${escapeHtml(sd.id)}" data-shift="${escapeHtml(shiftKey)}"></div>
             </div>
-          `;
+          `}
+        `;
 
+        // time editing
+        const inpStart = block.querySelector('[data-act="timeStart"]');
+        const inpEnd = block.querySelector('[data-act="timeEnd"]');
+        function onTimeChange(){
+          const newStart = inpStart.value || startT;
+          const newEnd = inpEnd.value || endT;
+          if(sd.id === "_main"){
+            const next = JSON.parse(JSON.stringify(depShifts));
+            next[shiftKey] = { ...(next[shiftKey]||{}), start: newStart, end: newEnd };
+            saveShiftDebounced(dep, "_main", next);
+          } else {
+            const nextSubdeps = updateSubdepArray(dep, sd.id, (x)=>{
+              const base = (x.shifts && Object.keys(x.shifts).length) ? x.shifts : {};
+              const next = JSON.parse(JSON.stringify(base));
+              next[shiftKey] = { ...(next[shiftKey]||{}), start: newStart, end: newEnd, label: (next[shiftKey]?.label || label) };
+              x.shifts = next;
+              return x;
+            });
+            saveShiftDebounced(dep, sd.id, nextSubdeps);
+          }
+        }
+        inpStart.addEventListener("input", onTimeChange);
+        inpEnd.addEventListener("input", onTimeChange);
+
+        // delete shift
+        block.querySelector('[data-act="delShift"]').addEventListener("click", async ()=>{
+          if(!confirm("Togliere questo turno?")) return;
+          try{
+            setSaving("Tolgo turno…");
+            if(sd.id === "_main"){
+              const next = JSON.parse(JSON.stringify(depShifts));
+              delete next[shiftKey];
+              if(Object.keys(next).length === 0){ alert("Deve rimanere almeno 1 turno."); setSaving("Pronto"); return; }
+              await updateDepartment(dep.id, { shifts: next });
+            } else {
+              const nextSubdeps = updateSubdepArray(dep, sd.id, (x)=>{
+                const base = (x.shifts && Object.keys(x.shifts).length) ? x.shifts : {};
+                const next = JSON.parse(JSON.stringify(base));
+                delete next[shiftKey];
+                x.shifts = next;
+                return x;
+              });
+              const after = nextSubdeps.find(x=>x.id===sd.id);
+              const afterShifts = after?.shifts || {};
+              if(Object.keys(afterShifts).length === 0){ alert("Deve rimanere almeno 1 turno."); setSaving("Pronto"); return; }
+              await updateDepartment(dep.id, { subdeps: nextSubdeps });
+            }
+            await loadSetup(); await loadDay(); renderAll();
+            setSaving("Pronto");
+          }catch(e){ console.error(e); setSaving("Errore"); }
+        });
+
+        if(isExtra){
+          const sel = block.querySelector('select[data-act="extraSelect"]');
+          sel.innerHTML = `<option value="">—</option>` + employees
+            .filter(e=>e.active !== false)
+            .map(e=>`<option value="${e.id}">${escapeHtml(e.name)}</option>`)
+            .join("");
+          const current = (slot.staff && slot.staff[0]) ? slot.staff[0] : "";
+          sel.value = current;
+          sel.addEventListener("change", ()=>{
+            const val = sel.value || "";
+            slot.staff = val ? [val] : [];
+            saveDayDebounced();
+            renderAll();
+          });
+        } else {
+          // leader/staff rendering + drag targets are handled by existing logic elsewhere (reuse v9 style)
+          // We keep minimal: rely on renderAll's pool drag start; but still need chip rendering here:
           const leaderZone = block.querySelector('.dropzone[data-role="leader"]');
           const leaderId = slot.leader;
-          if(!leaderId){
-            leaderZone.innerHTML = `<div class="small muted">Trascina qui il capoturno</div>`;
-          } else {
+          if(!leaderId) leaderZone.innerHTML = `<div class="small muted">Trascina qui il capoturno</div>`;
+          else {
             const emp = employees.find(e=>e.id===leaderId);
             leaderZone.innerHTML = "";
             if(emp){
@@ -444,20 +566,15 @@ function renderDepartmentsBoard(){
               chip.draggable = true;
               chip.innerHTML = `<span>${escapeHtml(emp.name)}</span><button title="Rimuovi">✕</button>`;
               chip.addEventListener("dragstart", (ev)=>{ draggingEmpId = emp.id; ev.dataTransfer.setData("text/plain", emp.id); });
-              chip.querySelector("button").addEventListener("click", ()=>{
-                slot.leader = null;
-                saveDayDebounced();
-                renderAll();
-              });
+              chip.querySelector("button").addEventListener("click", ()=>{ slot.leader=null; saveDayDebounced(); renderAll(); });
               leaderZone.appendChild(chip);
             }
           }
 
           const staffZone = block.querySelector('.dropzone[data-role="staff"]');
           const ids = slot.staff || [];
-          if(ids.length === 0){
-            staffZone.innerHTML = `<div class="small muted">Trascina qui i dipendenti</div>`;
-          } else {
+          if(ids.length===0) staffZone.innerHTML = `<div class="small muted">Trascina qui i dipendenti</div>`;
+          else {
             staffZone.innerHTML = "";
             ids.forEach(empId=>{
               const emp = employees.find(e=>e.id===empId);
@@ -467,11 +584,7 @@ function renderDepartmentsBoard(){
               chip.draggable = true;
               chip.innerHTML = `<span>${escapeHtml(emp.name)}</span><button title="Rimuovi">✕</button>`;
               chip.addEventListener("dragstart", (ev)=>{ draggingEmpId = emp.id; ev.dataTransfer.setData("text/plain", emp.id); });
-              chip.querySelector("button").addEventListener("click", ()=>{
-                removeFromAllAssignments(empId);
-                saveDayDebounced();
-                renderAll();
-              });
+              chip.querySelector("button").addEventListener("click", ()=>{ removeFromAllAssignments(empId); saveDayDebounced(); renderAll(); });
               staffZone.appendChild(chip);
             });
           }
@@ -494,130 +607,65 @@ function renderDepartmentsBoard(){
               renderAll();
             });
           });
-
-          const inpStart = block.querySelector('[data-act="timeStart"]');
-          const inpEnd = block.querySelector('[data-act="timeEnd"]');
-
-          function onTimeChange(){
-            const newStart = inpStart.value || startT;
-            const newEnd = inpEnd.value || endT;
-
-            if(sd.id === "_main"){
-              const next = JSON.parse(JSON.stringify(depShifts));
-              next[shiftKey] = { ...(next[shiftKey]||{}), start: newStart, end: newEnd };
-              saveShiftDebounced(dep, "_main", next);
-            } else {
-              const nextSubdeps = updateSubdepArray(dep, sd.id, (x)=>{
-                const base = (x.shifts && Object.keys(x.shifts).length) ? x.shifts : {};
-                const next = JSON.parse(JSON.stringify(base));
-                next[shiftKey] = { ...(next[shiftKey]||{}), start: newStart, end: newEnd, label: (next[shiftKey]?.label || label) };
-                x.shifts = next;
-                return x;
-              });
-              saveShiftDebounced(dep, sd.id, nextSubdeps);
-            }
-          }
-
-          inpStart.addEventListener("input", onTimeChange);
-          inpEnd.addEventListener("input", onTimeChange);
-
-          block.querySelector('[data-act="delShift"]').addEventListener("click", async ()=>{
-            if(!confirm("Togliere questo turno?")) return;
-            try{
-              setSaving("Tolgo turno…");
-              if(sd.id === "_main"){
-                const next = JSON.parse(JSON.stringify(depShifts));
-                delete next[shiftKey];
-                if(Object.keys(next).length === 0){ alert("Deve rimanere almeno 1 turno."); setSaving("Pronto"); return; }
-                await updateDepartment(dep.id, { shifts: next });
-              } else {
-                const nextSubdeps = updateSubdepArray(dep, sd.id, (x)=>{
-                  const base = (x.shifts && Object.keys(x.shifts).length) ? x.shifts : {};
-                  const next = JSON.parse(JSON.stringify(base));
-                  delete next[shiftKey];
-                  x.shifts = next;
-                  return x;
-                });
-                const after = nextSubdeps.find(x=>x.id===sd.id);
-                const afterShifts = after?.shifts || {};
-                if(Object.keys(afterShifts).length === 0){ alert("Deve rimanere almeno 1 turno."); setSaving("Pronto"); return; }
-                await updateDepartment(dep.id, { subdeps: nextSubdeps });
-              }
-              await loadSetup(); await loadDay(); renderAll();
-              setSaving("Turno tolto");
-            }catch(e){
-              console.error(e);
-              alert("Errore: " + (e?.message || e));
-              setSaving("Errore");
-            }
-          });
-
-          sdContent.appendChild(block);
         }
 
-        sdBox.querySelector('[data-act="addShiftSub"]').addEventListener("click", async ()=>{
-          const start = "08:00", end = "17:00", label = "Turno";
-          try{
-            setSaving("Aggiungo turno…");
-            const nums = shiftKeys.map(k=>Number(k.replace(/\D/g,""))||0);
-            const nextN = (Math.max(...nums, 0) + 1);
-            const newKey = "s" + nextN;
-
-            if(sd.id === "_main"){
-              const next = JSON.parse(JSON.stringify(depShifts));
-              next[newKey] = { label, start, end };
-              await updateDepartment(dep.id, { shifts: next });
-            } else {
-              const nextSubdeps = updateSubdepArray(dep, sd.id, (x)=>{
-                const base = (x.shifts && Object.keys(x.shifts).length) ? x.shifts : {};
-                const next = JSON.parse(JSON.stringify(base));
-                next[newKey] = { label, start, end };
-                x.shifts = next;
-                return x;
-              });
-              await updateDepartment(dep.id, { subdeps: nextSubdeps });
-            }
-
-            await loadSetup(); await loadDay(); renderAll();
-            setSaving("Turno aggiunto");
-          }catch(e){
-            console.error(e);
-            alert("Errore aggiunta turno: " + (e?.message || e));
-            setSaving("Errore");
-          }
-        });
-
-        sdBox.appendChild(sdContent);
-        content.appendChild(sdBox);
+        sdContent.appendChild(block);
       }
 
-      wrap.appendChild(content);
-      deptBoard.appendChild(wrap);
+      sdBox.querySelector('[data-act="addShiftSub"]').addEventListener("click", async ()=>{
+        const start="08:00", end="17:00", label="Turno";
+        try{
+          setSaving("Aggiungo turno…");
+          const nums = shiftKeys.map(k=>Number(k.replace(/\D/g,""))||0);
+          const nextN = (Math.max(...nums, 0) + 1);
+          const newKey = "s" + nextN;
 
-      const btnMain = wrap.querySelector('[data-act="addShiftMain"]');
-      if(btnMain){
-        btnMain.addEventListener("click", async ()=>{
-          const start="08:00", end="17:00", label="Turno";
-          try{
-            setSaving("Aggiungo turno…");
-            const nums = depShiftKeys.map(k=>Number(k.replace(/\D/g,""))||0);
-            const nextN = (Math.max(...nums, 0) + 1);
-            const newKey = "s" + nextN;
+          if(sd.id === "_main"){
             const next = JSON.parse(JSON.stringify(depShifts));
             next[newKey] = { label, start, end };
             await updateDepartment(dep.id, { shifts: next });
-            await loadSetup(); await loadDay(); renderAll();
-            setSaving("Turno aggiunto");
-          }catch(e){
-            console.error(e);
-            alert("Errore aggiunta turno: " + (e?.message || e));
-            setSaving("Errore");
+          } else {
+            const nextSubdeps = updateSubdepArray(dep, sd.id, (x)=>{
+              const base = (x.shifts && Object.keys(x.shifts).length) ? x.shifts : {};
+              const next = JSON.parse(JSON.stringify(base));
+              next[newKey] = { label, start, end };
+              x.shifts = next;
+              return x;
+            });
+            await updateDepartment(dep.id, { subdeps: nextSubdeps });
           }
-        });
-      }
+
+          await loadSetup(); await loadDay(); renderAll();
+          setSaving("Pronto");
+        }catch(e){ console.error(e); setSaving("Errore"); }
+      });
+
+      content.appendChild(sdBox);
+    }
+
+    wrap.appendChild(content);
+    deptBoard.appendChild(wrap);
+
+    const btnMain = wrap.querySelector('[data-act="addShiftMain"]');
+    if(btnMain){
+      btnMain.addEventListener("click", async ()=>{
+        const start="08:00", end="17:00", label="Turno";
+        try{
+          setSaving("Aggiungo turno…");
+          const nums = depShiftKeys.map(k=>Number(k.replace(/\D/g,""))||0);
+          const nextN = (Math.max(...nums, 0) + 1);
+          const newKey = "s" + nextN;
+          const next = JSON.parse(JSON.stringify(depShifts));
+          next[newKey] = { label, start, end };
+          await updateDepartment(dep.id, { shifts: next });
+          await loadSetup(); await loadDay(); renderAll();
+          setSaving("Pronto");
+        }catch(e){ console.error(e); setSaving("Errore"); }
+      });
     }
   }
-function renderPool(){
+}
+function renderPool({
     const q = ($("#search").value || "").trim().toLowerCase();
     const assigned = computeAssignedSet();
     const poolList = employees
