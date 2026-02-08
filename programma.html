@@ -211,7 +211,47 @@ import { auth, db, fb } from "./js/firebase.js";
     setSaving("Pronto");
   }
 
-  const saveDayDebounced = debounce(async ()=>{
+  
+  // Debounce salvataggio orari/turni su Firestore (per evitare troppe scritture)
+  const shiftSaveTimers = new Map();
+  function debounceKey(depId, subId){ return depId + "||" + subId; }
+
+  async function updateDepartment(depId, patch){
+    await fb.updateDoc(fb.doc(db, "settings_departments", depId), patch);
+  }
+
+  function updateSubdepArray(dep, subId, updater){
+    const arr = (Array.isArray(dep.subdeps) ? dep.subdeps.slice() : []);
+    const idx = arr.findIndex(x=>x.id===subId);
+    if(idx < 0) return arr;
+    arr[idx] = updater({ ...arr[idx] });
+    return arr;
+  }
+
+  function saveShiftDebounced(dep, subId, nextSubdepsOrShifts){
+    const key = debounceKey(dep.id, subId);
+    if(shiftSaveTimers.has(key)) clearTimeout(shiftSaveTimers.get(key));
+    shiftSaveTimers.set(key, setTimeout(async ()=>{
+      try{
+        setSaving("Salvo orario…");
+        if(subId === "_main"){
+          await updateDepartment(dep.id, { shifts: nextSubdepsOrShifts });
+        } else {
+          await updateDepartment(dep.id, { subdeps: nextSubdepsOrShifts });
+        }
+        await loadSetup();
+        await loadDay();
+        renderAll();
+        setSaving("Orario salvato");
+      }catch(e){
+        console.error(e);
+        setSaving("Errore");
+        alert("Errore salvataggio: " + (e?.message || e));
+      }
+    }, 450));
+  }
+
+const saveDayDebounced = debounce(async ()=>{
     try{
       setSaving("Salvo…");
       await fb.setDoc(dayDocRef(), dayData, { merge: true });
@@ -273,13 +313,13 @@ import { auth, db, fb } from "./js/firebase.js";
     renderDepartmentsBoard();
     renderPool();
   }
-  function renderDepartmentsBoard(){
-
+  
+function renderDepartmentsBoard(){
     deptBoard.innerHTML = "";
 
     for(const dep of departments){
-      const shiftsObj = dep.shifts || {};
-      const shiftKeys = Object.keys(shiftsObj).sort((a,b)=>{
+      const depShifts = dep.shifts || {};
+      const depShiftKeys = Object.keys(depShifts).sort((a,b)=>{
         const na = Number(a.replace(/\D/g,"")) || 0;
         const nb = Number(b.replace(/\D/g,"")) || 0;
         return na - nb;
@@ -287,7 +327,7 @@ import { auth, db, fb } from "./js/firebase.js";
 
       const subdeps = (Array.isArray(dep.subdeps) && dep.subdeps.length)
         ? dep.subdeps.slice().sort((a,b)=>(a.order||0)-(b.order||0))
-        : [{ id: "_main", name: (dep.name||dep.id), order: 0 }];
+        : [{ id: "_main", name: (dep.name||dep.id), order: 0, shifts: depShifts }];
 
       const wrap = document.createElement("div");
       wrap.className = "dept";
@@ -296,10 +336,10 @@ import { auth, db, fb } from "./js/firebase.js";
         <div class="dept-head">
           <div>
             <div class="dept-name">${escapeHtml(dep.name || dep.id)}</div>
-            <div class="dept-sub">Sottoreparti: ${subdeps.length} • Turni: ${shiftKeys.length}</div>
+            <div class="dept-sub">Sottoreparti: ${subdeps.length}</div>
           </div>
           <div class="row" style="gap:8px">
-            <button class="btn secondary smallbtn" data-act="addShift" type="button">+ Turno</button>
+            ${subdeps[0].id === "_main" ? '<button class="btn secondary smallbtn" data-act="addShiftMain" type="button">+ Turno</button>' : ''}
             <div class="badge">${escapeHtml(dep.id)}</div>
           </div>
         </div>
@@ -313,14 +353,25 @@ import { auth, db, fb } from "./js/firebase.js";
       content.style.gap = "12px";
 
       for(const sd of subdeps){
+        const sdShifts = (sd.shifts && Object.keys(sd.shifts).length) ? sd.shifts : depShifts;
+        const shiftKeys = Object.keys(sdShifts).sort((a,b)=>{
+          const na = Number(a.replace(/\D/g,"")) || 0;
+          const nb = Number(b.replace(/\D/g,"")) || 0;
+          return na - nb;
+        });
+
         const sdBox = document.createElement("div");
         sdBox.className = "dept";
         sdBox.style.background = "rgba(255,255,255,.02)";
+
         sdBox.innerHTML = `
           <div class="dept-head" style="border-bottom: 1px solid rgba(255,255,255,.06)">
             <div>
               <div class="dept-name" style="font-size:14px">${escapeHtml(sd.name)}</div>
-              <div class="dept-sub">Sottoreparto</div>
+              <div class="dept-sub">${sd.id === "_main" ? "Reparto" : "Sottoreparto"}</div>
+            </div>
+            <div class="row" style="gap:8px">
+              <button class="btn secondary smallbtn" data-act="addShiftSub" type="button">+ Turno</button>
             </div>
           </div>
         `;
@@ -332,8 +383,15 @@ import { auth, db, fb } from "./js/firebase.js";
         sdContent.style.flexDirection = "column";
         sdContent.style.gap = "10px";
 
+        if(shiftKeys.length === 0){
+          const empty = document.createElement("div");
+          empty.className = "small muted";
+          empty.textContent = "Nessun turno configurato. Aggiungi un turno.";
+          sdContent.appendChild(empty);
+        }
+
         for(const shiftKey of shiftKeys){
-          const sft = shiftsObj[shiftKey] || {};
+          const sft = sdShifts[shiftKey] || {};
           const label = sft.label || "Turno";
           const startT = sft.start || "08:00";
           const endT = sft.end || "17:00";
@@ -343,25 +401,36 @@ import { auth, db, fb } from "./js/firebase.js";
 
           const block = document.createElement("div");
           block.className = "shift";
-          block.style.gridTemplateColumns = "220px 1fr";
+          block.style.gridTemplateColumns = "1fr";
           block.innerHTML = `
-            <div class="shift-title">
-              <b>${escapeHtml(label)}</b>
-              <div class="small">${escapeHtml(startT)}–${escapeHtml(endT)}</div>
-              <div class="row" style="margin-top:8px;gap:8px;flex-wrap:wrap">
-                <button class="btn secondary smallbtn" data-act="editShift" data-shift="${escapeHtml(shiftKey)}" type="button">Modifica orario</button>
-                <button class="btn danger smallbtn" data-act="delShift" data-shift="${escapeHtml(shiftKey)}" type="button">Togli turno</button>
+            <div class="shift-title" style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:flex-end">
+              <div style="min-width:200px;flex:1">
+                <b>${escapeHtml(label)}</b>
               </div>
-              <div class="small muted" style="margin-top:8px">Capoturno</div>
+              <div class="row" style="gap:8px;align-items:flex-end;flex-wrap:wrap">
+                <div class="field" style="min-width:140px;margin:0">
+                  <label>Inizio</label>
+                  <input type="time" data-act="timeStart" value="${escapeHtml(startT)}"/>
+                </div>
+                <div class="field" style="min-width:140px;margin:0">
+                  <label>Fine</label>
+                  <input type="time" data-act="timeEnd" value="${escapeHtml(endT)}"/>
+                </div>
+                <button class="btn danger smallbtn" data-act="delShift" type="button">Togli turno</button>
+              </div>
+            </div>
+
+            <div style="margin-top:10px">
+              <div class="small muted" style="margin-bottom:6px">Capoturno</div>
               <div class="dropzone" data-role="leader" data-dep="${dep.id}" data-sub="${escapeHtml(sd.id)}" data-shift="${escapeHtml(shiftKey)}" style="min-height:44px"></div>
             </div>
-            <div>
+
+            <div style="margin-top:10px">
               <div class="small muted" style="margin-bottom:6px">Operatori</div>
               <div class="dropzone" data-role="staff" data-dep="${dep.id}" data-sub="${escapeHtml(sd.id)}" data-shift="${escapeHtml(shiftKey)}"></div>
             </div>
           `;
 
-          // Leader rendering
           const leaderZone = block.querySelector('.dropzone[data-role="leader"]');
           const leaderId = slot.leader;
           if(!leaderId){
@@ -372,7 +441,9 @@ import { auth, db, fb } from "./js/firebase.js";
             if(emp){
               const chip = document.createElement("div");
               chip.className = "chip";
+              chip.draggable = true;
               chip.innerHTML = `<span>${escapeHtml(emp.name)}</span><button title="Rimuovi">✕</button>`;
+              chip.addEventListener("dragstart", (ev)=>{ draggingEmpId = emp.id; ev.dataTransfer.setData("text/plain", emp.id); });
               chip.querySelector("button").addEventListener("click", ()=>{
                 slot.leader = null;
                 saveDayDebounced();
@@ -382,7 +453,6 @@ import { auth, db, fb } from "./js/firebase.js";
             }
           }
 
-          // Staff rendering
           const staffZone = block.querySelector('.dropzone[data-role="staff"]');
           const ids = slot.staff || [];
           if(ids.length === 0){
@@ -394,7 +464,9 @@ import { auth, db, fb } from "./js/firebase.js";
               if(!emp) return;
               const chip = document.createElement("div");
               chip.className = "chip";
+              chip.draggable = true;
               chip.innerHTML = `<span>${escapeHtml(emp.name)}</span><button title="Rimuovi">✕</button>`;
+              chip.addEventListener("dragstart", (ev)=>{ draggingEmpId = emp.id; ev.dataTransfer.setData("text/plain", emp.id); });
               chip.querySelector("button").addEventListener("click", ()=>{
                 removeFromAllAssignments(empId);
                 saveDayDebounced();
@@ -404,7 +476,6 @@ import { auth, db, fb } from "./js/firebase.js";
             });
           }
 
-          // Drag/drop
           block.querySelectorAll(".dropzone").forEach(zone=>{
             zone.addEventListener("dragover", (ev)=>{ ev.preventDefault(); zone.classList.add("over"); });
             zone.addEventListener("dragleave", ()=> zone.classList.remove("over"));
@@ -424,45 +495,55 @@ import { auth, db, fb } from "./js/firebase.js";
             });
           });
 
-          // Edit shift times (updates department settings)
-          block.querySelector('[data-act="editShift"]').addEventListener("click", async ()=>{
-            const start = prompt("Nuovo INIZIO (HH:MM)", startT);
-            if(!start) return;
-            const end = prompt("Nuovo FINE (HH:MM)", endT);
-            if(!end) return;
-            const label2 = prompt("Nome turno (opzionale)", label) || label;
-            try{
-              setSaving("Salvo orario…");
-              const nextShifts = JSON.parse(JSON.stringify(shiftsObj));
-              nextShifts[shiftKey] = { ...(nextShifts[shiftKey]||{}), start, end, label: label2 };
-              await fb.updateDoc(fb.doc(db, "settings_departments", dep.id), { shifts: nextShifts });
-              await loadSetup();
-              await loadDay();
-              renderAll();
-              setSaving("Orario salvato");
-            }catch(e){
-              console.error(e);
-              alert("Errore salvataggio orario: " + (e?.message || e));
-              setSaving("Errore");
-            }
-          });
+          const inpStart = block.querySelector('[data-act="timeStart"]');
+          const inpEnd = block.querySelector('[data-act="timeEnd"]');
 
-          // Delete shift (updates department settings)
+          function onTimeChange(){
+            const newStart = inpStart.value || startT;
+            const newEnd = inpEnd.value || endT;
+
+            if(sd.id === "_main"){
+              const next = JSON.parse(JSON.stringify(depShifts));
+              next[shiftKey] = { ...(next[shiftKey]||{}), start: newStart, end: newEnd };
+              saveShiftDebounced(dep, "_main", next);
+            } else {
+              const nextSubdeps = updateSubdepArray(dep, sd.id, (x)=>{
+                const base = (x.shifts && Object.keys(x.shifts).length) ? x.shifts : {};
+                const next = JSON.parse(JSON.stringify(base));
+                next[shiftKey] = { ...(next[shiftKey]||{}), start: newStart, end: newEnd, label: (next[shiftKey]?.label || label) };
+                x.shifts = next;
+                return x;
+              });
+              saveShiftDebounced(dep, sd.id, nextSubdeps);
+            }
+          }
+
+          inpStart.addEventListener("input", onTimeChange);
+          inpEnd.addEventListener("input", onTimeChange);
+
           block.querySelector('[data-act="delShift"]').addEventListener("click", async ()=>{
-            if(!confirm("Togliere questo turno dal reparto?")) return;
+            if(!confirm("Togliere questo turno?")) return;
             try{
               setSaving("Tolgo turno…");
-              const nextShifts = JSON.parse(JSON.stringify(shiftsObj));
-              delete nextShifts[shiftKey];
-              if(Object.keys(nextShifts).length === 0){
-                alert("Deve rimanere almeno 1 turno.");
-                setSaving("Pronto");
-                return;
+              if(sd.id === "_main"){
+                const next = JSON.parse(JSON.stringify(depShifts));
+                delete next[shiftKey];
+                if(Object.keys(next).length === 0){ alert("Deve rimanere almeno 1 turno."); setSaving("Pronto"); return; }
+                await updateDepartment(dep.id, { shifts: next });
+              } else {
+                const nextSubdeps = updateSubdepArray(dep, sd.id, (x)=>{
+                  const base = (x.shifts && Object.keys(x.shifts).length) ? x.shifts : {};
+                  const next = JSON.parse(JSON.stringify(base));
+                  delete next[shiftKey];
+                  x.shifts = next;
+                  return x;
+                });
+                const after = nextSubdeps.find(x=>x.id===sd.id);
+                const afterShifts = after?.shifts || {};
+                if(Object.keys(afterShifts).length === 0){ alert("Deve rimanere almeno 1 turno."); setSaving("Pronto"); return; }
+                await updateDepartment(dep.id, { subdeps: nextSubdeps });
               }
-              await fb.updateDoc(fb.doc(db, "settings_departments", dep.id), { shifts: nextShifts });
-              await loadSetup();
-              await loadDay();
-              renderAll();
+              await loadSetup(); await loadDay(); renderAll();
               setSaving("Turno tolto");
             }catch(e){
               console.error(e);
@@ -474,6 +555,38 @@ import { auth, db, fb } from "./js/firebase.js";
           sdContent.appendChild(block);
         }
 
+        sdBox.querySelector('[data-act="addShiftSub"]').addEventListener("click", async ()=>{
+          const start = "08:00", end = "17:00", label = "Turno";
+          try{
+            setSaving("Aggiungo turno…");
+            const nums = shiftKeys.map(k=>Number(k.replace(/\D/g,""))||0);
+            const nextN = (Math.max(...nums, 0) + 1);
+            const newKey = "s" + nextN;
+
+            if(sd.id === "_main"){
+              const next = JSON.parse(JSON.stringify(depShifts));
+              next[newKey] = { label, start, end };
+              await updateDepartment(dep.id, { shifts: next });
+            } else {
+              const nextSubdeps = updateSubdepArray(dep, sd.id, (x)=>{
+                const base = (x.shifts && Object.keys(x.shifts).length) ? x.shifts : {};
+                const next = JSON.parse(JSON.stringify(base));
+                next[newKey] = { label, start, end };
+                x.shifts = next;
+                return x;
+              });
+              await updateDepartment(dep.id, { subdeps: nextSubdeps });
+            }
+
+            await loadSetup(); await loadDay(); renderAll();
+            setSaving("Turno aggiunto");
+          }catch(e){
+            console.error(e);
+            alert("Errore aggiunta turno: " + (e?.message || e));
+            setSaving("Errore");
+          }
+        });
+
         sdBox.appendChild(sdContent);
         content.appendChild(sdBox);
       }
@@ -481,36 +594,30 @@ import { auth, db, fb } from "./js/firebase.js";
       wrap.appendChild(content);
       deptBoard.appendChild(wrap);
 
-      // Add shift from PROGRAMMA
-      wrap.querySelector('[data-act="addShift"]').addEventListener("click", async ()=>{
-        const start = prompt("Orario INIZIO turno (HH:MM)", "17:00");
-        if(!start) return;
-        const end = prompt("Orario FINE turno (HH:MM)", "21:00");
-        if(!end) return;
-        const label = prompt("Nome turno (opzionale)", "Turno") || "Turno";
-        try{
-          setSaving("Salvo turno…");
-          const nums = shiftKeys.map(k=>Number(k.replace(/\D/g,""))||0);
-          const nextN = (Math.max(...nums, 0) + 1);
-          const newKey = "s" + nextN;
-          const nextShifts = JSON.parse(JSON.stringify(shiftsObj));
-          nextShifts[newKey] = { label, start, end };
-          await fb.updateDoc(fb.doc(db, "settings_departments", dep.id), { shifts: nextShifts });
-          await loadSetup();
-          await loadDay();
-          renderAll();
-          setSaving("Turno aggiunto");
-        }catch(e){
-          console.error(e);
-          alert("Errore aggiunta turno: " + (e?.message || e));
-          setSaving("Errore");
-        }
-      });
+      const btnMain = wrap.querySelector('[data-act="addShiftMain"]');
+      if(btnMain){
+        btnMain.addEventListener("click", async ()=>{
+          const start="08:00", end="17:00", label="Turno";
+          try{
+            setSaving("Aggiungo turno…");
+            const nums = depShiftKeys.map(k=>Number(k.replace(/\D/g,""))||0);
+            const nextN = (Math.max(...nums, 0) + 1);
+            const newKey = "s" + nextN;
+            const next = JSON.parse(JSON.stringify(depShifts));
+            next[newKey] = { label, start, end };
+            await updateDepartment(dep.id, { shifts: next });
+            await loadSetup(); await loadDay(); renderAll();
+            setSaving("Turno aggiunto");
+          }catch(e){
+            console.error(e);
+            alert("Errore aggiunta turno: " + (e?.message || e));
+            setSaving("Errore");
+          }
+        });
+      }
     }
   }
-
-
-  function renderPool(){
+function renderPool({
     const q = ($("#search").value || "").trim().toLowerCase();
     const assigned = computeAssignedSet();
     const poolList = employees
