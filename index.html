@@ -23,6 +23,7 @@
         position: fixed;
         right: 0;
         top: 0;
+        box-sizing: border-box;
     }
 
     #sidebar h2 {
@@ -64,6 +65,7 @@
         flex: 1;
         padding: 20px;
         margin-right: 260px;
+        box-sizing: border-box;
     }
 
     .weekNav {
@@ -74,6 +76,21 @@
         padding: 8px 12px;
         margin-right: 10px;
         cursor: pointer;
+    }
+
+    .daySelector {
+        margin-bottom: 10px;
+    }
+
+    .daySelector button {
+        padding: 8px 12px;
+        margin-right: 5px;
+        cursor: pointer;
+    }
+
+    .daySelector button.active {
+        background: #c8f5d0;
+        border: 2px solid #2e8b57;
     }
 
     .section {
@@ -100,6 +117,8 @@
         border: 1px solid #ccc;
         padding: 6px;
         text-align: center;
+        height: 40px;
+        box-sizing: border-box;
     }
 
     th {
@@ -110,17 +129,27 @@
         text-align: left;
         font-weight: bold;
         background: #f7f7f7;
-        width: 250px;
+        width: 260px;
     }
 
     .dropcell {
-        min-height: 35px;
         background: #fafafa;
         cursor: pointer;
     }
 
     .dropcell:hover {
         background: #e6f7ff;
+    }
+
+    /* Colonna selezionata: bordo verde solo sx/dx */
+    .selected-day-cell {
+        border-left: 4px solid #2e8b57 !important;
+        border-right: 4px solid #2e8b57 !important;
+    }
+
+    .selected-day-header {
+        border-left: 4px solid #2e8b57 !important;
+        border-right: 4px solid #2e8b57 !important;
     }
 </style>
 </head>
@@ -144,6 +173,16 @@
 
     <h1>Programma Magazzino</h1>
 
+    <!-- Selezione giorno -->
+    <div class="daySelector">
+        <button data-day="lun" onclick="selectDay('lun')">Lunedì</button>
+        <button data-day="mar" onclick="selectDay('mar')">Martedì</button>
+        <button data-day="mer" onclick="selectDay('mer')">Mercoledì</button>
+        <button data-day="gio" onclick="selectDay('gio')">Giovedì</button>
+        <button data-day="ven" onclick="selectDay('ven')">Venerdì</button>
+        <button data-day="sab" onclick="selectDay('sab')">Sabato</button>
+    </div>
+
     <!-- Navigazione settimana -->
     <div class="weekNav">
         <button onclick="prevWeek()">← Settimana precedente</button>
@@ -151,84 +190,45 @@
         <button onclick="nextWeek()">Settimana successiva →</button>
     </div>
 
-    <!-- ============================
-         ESEMPIO DI REPARTO COMPLETO
-         ============================ -->
-    <div class="section">
-        <h3>GRATTUGIATURA GRATTUGIA</h3>
-
-        <table>
-            <tr>
-                <th>Reparto / Turno</th>
-                <th>Lunedì</th>
-                <th>Martedì</th>
-                <th>Mercoledì</th>
-                <th>Giovedì</th>
-                <th>Venerdì</th>
-                <th>Sabato</th>
-            </tr>
-
-            <!-- Sottoreparto -->
-            <tr>
-                <td class="labelCell">06:00–14:00</td>
-                <td class="dropcell" data-key="g1_lun"></td>
-                <td class="dropcell" data-key="g1_mar"></td>
-                <td class="dropcell" data-key="g1_mer"></td>
-                <td class="dropcell" data-key="g1_gio"></td>
-                <td class="dropcell" data-key="g1_ven"></td>
-                <td class="dropcell" data-key="g1_sab"></td>
-            </tr>
-
-            <!-- 5 righe operative -->
-            <tr>
-                <td class="labelCell"></td>
-                <td class="dropcell" data-key="g2_lun"></td>
-                <td class="dropcell" data-key="g2_mar"></td>
-                <td class="dropcell" data-key="g2_mer"></td>
-                <td class="dropcell" data-key="g2_gio"></td>
-                <td class="dropcell" data-key="g2_ven"></td>
-                <td class="dropcell" data-key="g2_sab"></td>
-            </tr>
-
-            <tr>
-                <td class="labelCell"></td>
-                <td class="dropcell" data-key="g3_lun"></td>
-                <td class="dropcell" data-key="g3_mar"></td>
-                <td class="dropcell" data-key="g3_mer"></td>
-                <td class="dropcell" data-key="g3_gio"></td>
-                <td class="dropcell" data-key="g3_ven"></td>
-                <td class="dropcell" data-key="g3_sab"></td>
-            </tr>
-
-            <tr>
-                <td class="labelCell"></td>
-                <td class="dropcell" data-key="g4_lun"></td>
-                <td class="dropcell" data-key="g4_mar"></td>
-                <td class="dropcell" data-key="g4_mer"></td>
-                <td class="dropcell" data-key="g4_gio"></td>
-                <td class="dropcell" data-key="g4_ven"></td>
-                <td class="dropcell" data-key="g4_sab"></td>
-            </tr>
-
-            <tr>
-                <td class="labelCell"></td>
-                <td class="dropcell" data-key="g5_lun"></td>
-                <td class="dropcell" data-key="g5_mar"></td>
-                <td class="dropcell" data-key="g5_mer"></td>
-                <td class="dropcell" data-key="g5_gio"></td>
-                <td class="dropcell" data-key="g5_ven"></td>
-                <td class="dropcell" data-key="g5_sab"></td>
-            </tr>
-        </table>
-    </div>
+    <!-- Sezioni reparti generate da JS -->
+    <div id="sectionsContainer"></div>
 
 </div>
 
 <script>
 /* ============================================================
+   CONFIGURAZIONE REPARTI / TURNI / RIGHE
+   Puoi ampliare questo array per aggiungere tutti i reparti del PDF
+   ============================================================ */
+const structure = [
+    {
+        title: "GRATTUGIATURA GRATTUGIA",
+        blocks: [
+            {
+                label: "06:00–14:00",
+                rows: 5   // numero di righe operative (come nel PDF)
+            },
+            {
+                label: "14:00–22:00",
+                rows: 5
+            }
+        ]
+    },
+    {
+        title: "ETICHETTATURA",
+        blocks: [
+            { label: "Linea 1", rows: 3 },
+            { label: "Linea 2", rows: 3 }
+        ]
+    }
+    // Aggiungi qui altri reparti/sottoreparti con lo stesso schema
+];
+
+/* ============================================================
    GESTIONE SETTIMANE
    ============================================================ */
 let currentWeek = getCurrentWeek();
+let currentDay = "lun";
 
 function getCurrentWeek() {
     const now = new Date();
@@ -237,8 +237,10 @@ function getCurrentWeek() {
 }
 
 function updateWeekLabel() {
+    const now = new Date();
+    const year = now.getFullYear();
     document.getElementById("weekLabel").innerText =
-        "Settimana " + currentWeek;
+        "Settimana " + currentWeek + " - " + year;
 }
 
 function prevWeek() {
@@ -255,27 +257,169 @@ function nextWeek() {
     updateWeekLabel();
 }
 
-updateWeekLabel();
-
 /* ============================================================
-   DRAG & DROP
+   COSTRUZIONE TABELLE REPARTI
    ============================================================ */
-function allowDrop(ev) { ev.preventDefault(); }
-function drag(ev) { ev.dataTransfer.setData("text", ev.target.innerText); }
+const days = ["lun","mar","mer","gio","ven","sab"];
+const dayLabels = {
+    lun: "Lunedì",
+    mar: "Martedì",
+    mer: "Mercoledì",
+    gio: "Giovedì",
+    ven: "Venerdì",
+    sab: "Sabato"
+};
 
-document.querySelectorAll(".dropcell").forEach(cell => {
-    cell.ondragover = allowDrop;
-    cell.ondrop = function(ev) {
-        ev.preventDefault();
-        const name = ev.dataTransfer.getData("text");
-        this.innerText = name;
-        saveTable();
-        updateWorkersList();
-    };
-});
+function buildTables() {
+    const container = document.getElementById("sectionsContainer");
+    container.innerHTML = "";
+
+    structure.forEach((section, sIndex) => {
+        const div = document.createElement("div");
+        div.className = "section";
+
+        const h3 = document.createElement("h3");
+        h3.innerText = section.title;
+        div.appendChild(h3);
+
+        const table = document.createElement("table");
+        const thead = document.createElement("thead");
+        const trHead = document.createElement("tr");
+
+        const thLabel = document.createElement("th");
+        thLabel.innerText = "Reparto / Turno";
+        trHead.appendChild(thLabel);
+
+        days.forEach(d => {
+            const th = document.createElement("th");
+            th.innerText = dayLabels[d];
+            th.dataset.day = d;
+            trHead.appendChild(th);
+        });
+
+        thead.appendChild(trHead);
+        table.appendChild(thead);
+
+        const tbody = document.createElement("tbody");
+
+        section.blocks.forEach((block, bIndex) => {
+            // riga reparto (nome)
+            const trReparto = document.createElement("tr");
+            const tdRep = document.createElement("td");
+            tdRep.className = "labelCell";
+            tdRep.innerText = section.title;
+            trReparto.appendChild(tdRep);
+
+            days.forEach(d => {
+                const td = document.createElement("td");
+                td.className = "dropcell";
+                td.dataset.key = `s${sIndex}_b${bIndex}_rep_${d}`;
+                td.dataset.day = d;
+                trReparto.appendChild(td);
+            });
+            tbody.appendChild(trReparto);
+
+            // riga orario / sottoreparto
+            const trTurno = document.createElement("tr");
+            const tdTurno = document.createElement("td");
+            tdTurno.className = "labelCell";
+            tdTurno.innerText = block.label;
+            trTurno.appendChild(tdTurno);
+
+            days.forEach(d => {
+                const td = document.createElement("td");
+                td.className = "dropcell";
+                td.dataset.key = `s${sIndex}_b${bIndex}_turno_${d}`;
+                td.dataset.day = d;
+                trTurno.appendChild(td);
+            });
+            tbody.appendChild(trTurno);
+
+            // righe operative
+            for (let r = 0; r < block.rows; r++) {
+                const trRow = document.createElement("tr");
+                const tdLabel = document.createElement("td");
+                tdLabel.className = "labelCell";
+                tdLabel.innerText = "";
+                trRow.appendChild(tdLabel);
+
+                days.forEach(d => {
+                    const td = document.createElement("td");
+                    td.className = "dropcell";
+                    td.dataset.key = `s${sIndex}_b${bIndex}_r${r}_${d}`;
+                    td.dataset.day = d;
+                    trRow.appendChild(td);
+                });
+
+                tbody.appendChild(trRow);
+            }
+        });
+
+        table.appendChild(tbody);
+        div.appendChild(table);
+        container.appendChild(div);
+    });
+
+    attachCellHandlers();
+}
 
 /* ============================================================
-   SALVATAGGIO CELLE
+   DRAG & DROP + CANCELLAZIONE + SPOSTAMENTO
+   ============================================================ */
+let dragSourceCell = null;
+
+function allowDrop(ev) {
+    ev.preventDefault();
+}
+
+function dragFromWorker(ev) {
+    dragSourceCell = null;
+    ev.dataTransfer.setData("text/plain", ev.target.innerText);
+}
+
+function dragFromCell(ev) {
+    if (!ev.target.innerText.trim()) return;
+    dragSourceCell = ev.target;
+    ev.dataTransfer.setData("text/plain", ev.target.innerText);
+}
+
+function dropOnCell(ev) {
+    ev.preventDefault();
+    const name = ev.dataTransfer.getData("text/plain");
+    if (!name) return;
+
+    const target = ev.currentTarget;
+    target.innerText = name;
+
+    // se sto spostando da un'altra cella, svuoto la sorgente
+    if (dragSourceCell && dragSourceCell !== target) {
+        dragSourceCell.innerText = "";
+    }
+
+    saveTable();
+    updateWorkersList();
+}
+
+function clearCell(ev) {
+    const cell = ev.currentTarget;
+    if (cell.innerText.trim() === "") return;
+    cell.innerText = "";
+    saveTable();
+    updateWorkersList();
+}
+
+function attachCellHandlers() {
+    document.querySelectorAll(".dropcell").forEach(cell => {
+        cell.ondragover = allowDrop;
+        cell.ondrop = dropOnCell;
+        cell.draggable = true;
+        cell.ondragstart = dragFromCell;
+        cell.onclick = clearCell;
+    });
+}
+
+/* ============================================================
+   SALVATAGGIO / CARICAMENTO CELLE
    ============================================================ */
 function saveTable() {
     document.querySelectorAll(".dropcell").forEach(cell => {
@@ -293,8 +437,6 @@ function loadTable() {
     });
 }
 
-loadTable();
-
 /* ============================================================
    DIPENDENTI
    ============================================================ */
@@ -310,9 +452,11 @@ function updateWorkersList() {
     const list = document.getElementById("workersList");
     list.innerHTML = "";
 
+    // assegnati SOLO nel giorno selezionato
     const assigned = new Set();
-    document.querySelectorAll(".dropcell").forEach(cell => {
-        if (cell.innerText.trim() !== "") assigned.add(cell.innerText.trim());
+    document.querySelectorAll(`.dropcell[data-day='${currentDay}']`).forEach(cell => {
+        const val = cell.innerText.trim();
+        if (val) assigned.add(val);
     });
 
     defaultWorkers.forEach(w => {
@@ -320,26 +464,60 @@ function updateWorkersList() {
             const div = document.createElement("div");
             div.className = "worker";
             div.draggable = true;
-            div.ondragstart = drag;
+            div.ondragstart = dragFromWorker;
             div.innerText = w;
             list.appendChild(div);
         }
     });
 }
 
-updateWorkersList();
-
-/* ============================================================
-   AGGIUNTA DIPENDENTE
-   ============================================================ */
 function addWorker() {
-    const name = document.getElementById("newWorker").value.trim();
-    if (name === "") return;
-
+    const input = document.getElementById("newWorker");
+    const name = input.value.trim();
+    if (!name) return;
     defaultWorkers.push(name);
-    document.getElementById("newWorker").value = "";
+    input.value = "";
     updateWorkersList();
 }
+
+/* ============================================================
+   SELEZIONE GIORNO + EVIDENZIAZIONE COLONNA
+   ============================================================ */
+function selectDay(day) {
+    currentDay = day;
+
+    // bottoni
+    document.querySelectorAll(".daySelector button").forEach(btn => {
+        btn.classList.toggle("active", btn.dataset.day === day);
+    });
+
+    // rimuovi evidenziazione precedente
+    document.querySelectorAll(".selected-day-cell").forEach(c => {
+        c.classList.remove("selected-day-cell");
+    });
+    document.querySelectorAll(".selected-day-header").forEach(c => {
+        c.classList.remove("selected-day-header");
+    });
+
+    // aggiungi evidenziazione alla colonna selezionata
+    document.querySelectorAll(`th[data-day='${day}']`).forEach(th => {
+        th.classList.add("selected-day-header");
+    });
+    document.querySelectorAll(`.dropcell[data-day='${day}']`).forEach(td => {
+        td.classList.add("selected-day-cell");
+    });
+
+    updateWorkersList();
+}
+
+/* ============================================================
+   INIT
+   ============================================================ */
+buildTables();
+updateWeekLabel();
+loadTable();
+selectDay("lun");
+updateWorkersList();
 </script>
 
 </body>
