@@ -2,7 +2,7 @@
 <html lang="it">
 <head>
 <meta charset="UTF-8">
-<title>Programma Magazzino</title>
+<title>Programma Magazzino - Struttura Base</title>
 
 <style>
     body {
@@ -26,11 +26,6 @@
         box-sizing: border-box;
     }
 
-    #sidebar h2 {
-        text-align: center;
-        margin-top: 0;
-    }
-
     .worker {
         padding: 8px;
         margin: 5px 0;
@@ -40,27 +35,6 @@
         text-align: center;
     }
 
-    .worker:active {
-        cursor: grabbing;
-    }
-
-    #addWorkerBox {
-        display: flex;
-        margin-top: 10px;
-    }
-
-    #addWorkerBox input {
-        flex: 1;
-        padding: 5px;
-    }
-
-    #addWorkerBox button {
-        padding: 5px 10px;
-        margin-left: 5px;
-        cursor: pointer;
-    }
-
-    /* Main */
     #main {
         flex: 1;
         padding: 20px;
@@ -68,49 +42,10 @@
         box-sizing: border-box;
     }
 
-    .weekNav {
-        margin: 15px 0;
-    }
-
-    .weekNav button {
-        padding: 8px 12px;
-        margin-right: 10px;
-        cursor: pointer;
-    }
-
-    .daySelector {
-        margin-bottom: 10px;
-    }
-
-    .daySelector button {
-        padding: 8px 12px;
-        margin-right: 5px;
-        cursor: pointer;
-    }
-
-    .daySelector button.active {
-        background: #c8f5d0;
-        border: 2px solid #2e8b57;
-    }
-
-    .section {
-        margin-top: 25px;
-        background: white;
-        padding: 10px;
-        border-radius: 6px;
-        border: 1px solid #ccc;
-    }
-
-    .section h3 {
-        margin: 0;
-        padding: 5px 0;
-        border-bottom: 1px solid #ccc;
-    }
-
     table {
         width: 100%;
         border-collapse: collapse;
-        margin-top: 10px;
+        background: white;
     }
 
     th, td {
@@ -123,6 +58,7 @@
 
     th {
         background: #ddd;
+        cursor: pointer;
     }
 
     .labelCell {
@@ -141,15 +77,16 @@
         background: #e6f7ff;
     }
 
-    /* Colonna selezionata: bordo verde solo sx/dx */
-    .selected-day-cell {
+    /* Colonna selezionata */
+    .selected-day {
         border-left: 4px solid #2e8b57 !important;
         border-right: 4px solid #2e8b57 !important;
     }
 
-    .selected-day-header {
-        border-left: 4px solid #2e8b57 !important;
-        border-right: 4px solid #2e8b57 !important;
+    /* Primo nome del turno */
+    .first-name {
+        color: #0099ff;
+        font-weight: bold;
     }
 </style>
 </head>
@@ -160,364 +97,130 @@
 <div id="sidebar">
     <h2>Dipendenti</h2>
     <div id="workersList"></div>
-
-    <h3>Aggiungi dipendente</h3>
-    <div id="addWorkerBox">
-        <input type="text" id="newWorker" placeholder="Nome">
-        <button onclick="addWorker()">+</button>
-    </div>
 </div>
 
 <!-- Main -->
 <div id="main">
 
-    <h1>Programma Magazzino</h1>
+    <h1>Programma Magazzino – Struttura Base</h1>
 
-    <!-- Selezione giorno -->
-    <div class="daySelector">
-        <button data-day="lun" onclick="selectDay('lun')">Lunedì</button>
-        <button data-day="mar" onclick="selectDay('mar')">Martedì</button>
-        <button data-day="mer" onclick="selectDay('mer')">Mercoledì</button>
-        <button data-day="gio" onclick="selectDay('gio')">Giovedì</button>
-        <button data-day="ven" onclick="selectDay('ven')">Venerdì</button>
-        <button data-day="sab" onclick="selectDay('sab')">Sabato</button>
-    </div>
+    <table id="scheduleTable">
+        <thead>
+            <tr>
+                <th>REPARTO / SOTTOREPARTO</th>
+                <th data-day="lun">LUN</th>
+                <th data-day="mar">MAR</th>
+                <th data-day="mer">MER</th>
+                <th data-day="gio">GIO</th>
+                <th data-day="ven">VEN</th>
+                <th data-day="sab">SAB</th>
+            </tr>
+        </thead>
 
-    <!-- Navigazione settimana -->
-    <div class="weekNav">
-        <button onclick="prevWeek()">← Settimana precedente</button>
-        <span id="weekLabel"></span>
-        <button onclick="nextWeek()">Settimana successiva →</button>
-    </div>
+        <tbody>
 
-    <!-- Sezioni reparti generate da JS -->
-    <div id="sectionsContainer"></div>
+            <!-- ESEMPIO BASE -->
+            <tr>
+                <td class="labelCell">GRATTUGIATURA GRATTUGIA</td>
+                <td class="dropcell" data-key="rep1_lun"></td>
+                <td class="dropcell" data-key="rep1_mar"></td>
+                <td class="dropcell" data-key="rep1_mer"></td>
+                <td class="dropcell" data-key="rep1_gio"></td>
+                <td class="dropcell" data-key="rep1_ven"></td>
+                <td class="dropcell" data-key="rep1_sab"></td>
+            </tr>
+
+            <tr>
+                <td class="labelCell">turno 1 06:00–14:00</td>
+                <td class="dropcell firstcell" data-key="t1r0_lun"></td>
+                <td class="dropcell firstcell" data-key="t1r0_mar"></td>
+                <td class="dropcell firstcell" data-key="t1r0_mer"></td>
+                <td class="dropcell firstcell" data-key="t1r0_gio"></td>
+                <td class="dropcell firstcell" data-key="t1r0_ven"></td>
+                <td class="dropcell firstcell" data-key="t1r0_sab"></td>
+            </tr>
+
+            <tr>
+                <td class="labelCell"></td>
+                <td class="dropcell" data-key="t1r1_lun"></td>
+                <td class="dropcell" data-key="t1r1_mar"></td>
+                <td class="dropcell" data-key="t1r1_mer"></td>
+                <td class="dropcell" data-key="t1r1_gio"></td>
+                <td class="dropcell" data-key="t1r1_ven"></td>
+                <td class="dropcell" data-key="t1r1_sab"></td>
+            </tr>
+
+        </tbody>
+    </table>
 
 </div>
 
 <script>
-/* ============================================================
-   CONFIGURAZIONE REPARTI / TURNI / RIGHE
-   Puoi ampliare questo array per aggiungere tutti i reparti del PDF
-   ============================================================ */
-const structure = [
-    {
-        title: "GRATTUGIATURA GRATTUGIA",
-        blocks: [
-            {
-                label: "06:00–14:00",
-                rows: 5   // numero di righe operative (come nel PDF)
-            },
-            {
-                label: "14:00–22:00",
-                rows: 5
-            }
-        ]
-    },
-    {
-        title: "ETICHETTATURA",
-        blocks: [
-            { label: "Linea 1", rows: 3 },
-            { label: "Linea 2", rows: 3 }
-        ]
-    }
-    // Aggiungi qui altri reparti/sottoreparti con lo stesso schema
-];
+/* ===========================
+   GESTIONE SELEZIONE GIORNO
+   =========================== */
+let currentDay = null;
 
-/* ============================================================
-   GESTIONE SETTIMANE
-   ============================================================ */
-let currentWeek = getCurrentWeek();
-let currentDay = "lun";
+document.querySelectorAll("th[data-day]").forEach(th => {
+    th.addEventListener("click", () => {
+        currentDay = th.dataset.day;
 
-function getCurrentWeek() {
-    const now = new Date();
-    const onejan = new Date(now.getFullYear(), 0, 1);
-    return Math.ceil((((now - onejan) / 86400000) + onejan.getDay() + 1) / 7);
-}
-
-function updateWeekLabel() {
-    const now = new Date();
-    const year = now.getFullYear();
-    document.getElementById("weekLabel").innerText =
-        "Settimana " + currentWeek + " - " + year;
-}
-
-function prevWeek() {
-    currentWeek--;
-    loadTable();
-    updateWorkersList();
-    updateWeekLabel();
-}
-
-function nextWeek() {
-    currentWeek++;
-    loadTable();
-    updateWorkersList();
-    updateWeekLabel();
-}
-
-/* ============================================================
-   COSTRUZIONE TABELLE REPARTI
-   ============================================================ */
-const days = ["lun","mar","mer","gio","ven","sab"];
-const dayLabels = {
-    lun: "Lunedì",
-    mar: "Martedì",
-    mer: "Mercoledì",
-    gio: "Giovedì",
-    ven: "Venerdì",
-    sab: "Sabato"
-};
-
-function buildTables() {
-    const container = document.getElementById("sectionsContainer");
-    container.innerHTML = "";
-
-    structure.forEach((section, sIndex) => {
-        const div = document.createElement("div");
-        div.className = "section";
-
-        const h3 = document.createElement("h3");
-        h3.innerText = section.title;
-        div.appendChild(h3);
-
-        const table = document.createElement("table");
-        const thead = document.createElement("thead");
-        const trHead = document.createElement("tr");
-
-        const thLabel = document.createElement("th");
-        thLabel.innerText = "Reparto / Turno";
-        trHead.appendChild(thLabel);
-
-        days.forEach(d => {
-            const th = document.createElement("th");
-            th.innerText = dayLabels[d];
-            th.dataset.day = d;
-            trHead.appendChild(th);
-        });
-
-        thead.appendChild(trHead);
-        table.appendChild(thead);
-
-        const tbody = document.createElement("tbody");
-
-        section.blocks.forEach((block, bIndex) => {
-            // riga reparto (nome)
-            const trReparto = document.createElement("tr");
-            const tdRep = document.createElement("td");
-            tdRep.className = "labelCell";
-            tdRep.innerText = section.title;
-            trReparto.appendChild(tdRep);
-
-            days.forEach(d => {
-                const td = document.createElement("td");
-                td.className = "dropcell";
-                td.dataset.key = `s${sIndex}_b${bIndex}_rep_${d}`;
-                td.dataset.day = d;
-                trReparto.appendChild(td);
-            });
-            tbody.appendChild(trReparto);
-
-            // riga orario / sottoreparto
-            const trTurno = document.createElement("tr");
-            const tdTurno = document.createElement("td");
-            tdTurno.className = "labelCell";
-            tdTurno.innerText = block.label;
-            trTurno.appendChild(tdTurno);
-
-            days.forEach(d => {
-                const td = document.createElement("td");
-                td.className = "dropcell";
-                td.dataset.key = `s${sIndex}_b${bIndex}_turno_${d}`;
-                td.dataset.day = d;
-                trTurno.appendChild(td);
-            });
-            tbody.appendChild(trTurno);
-
-            // righe operative
-            for (let r = 0; r < block.rows; r++) {
-                const trRow = document.createElement("tr");
-                const tdLabel = document.createElement("td");
-                tdLabel.className = "labelCell";
-                tdLabel.innerText = "";
-                trRow.appendChild(tdLabel);
-
-                days.forEach(d => {
-                    const td = document.createElement("td");
-                    td.className = "dropcell";
-                    td.dataset.key = `s${sIndex}_b${bIndex}_r${r}_${d}`;
-                    td.dataset.day = d;
-                    trRow.appendChild(td);
-                });
-
-                tbody.appendChild(trRow);
-            }
-        });
-
-        table.appendChild(tbody);
-        div.appendChild(table);
-        container.appendChild(div);
+        document.querySelectorAll("td, th").forEach(c => c.classList.remove("selected-day"));
+        document.querySelectorAll(`td[data-key*='_${currentDay}'], th[data-day='${currentDay}']`)
+            .forEach(c => c.classList.add("selected-day"));
     });
+});
 
-    attachCellHandlers();
+/* ===========================
+   DRAG & DROP
+   =========================== */
+let dragSource = null;
+
+function allowDrop(ev) { ev.preventDefault(); }
+
+function drag(ev) {
+    dragSource = ev.target;
+    ev.dataTransfer.setData("text", ev.target.innerText);
 }
 
-/* ============================================================
-   DRAG & DROP + CANCELLAZIONE + SPOSTAMENTO
-   ============================================================ */
-let dragSourceCell = null;
-
-function allowDrop(ev) {
+function drop(ev) {
     ev.preventDefault();
+    const name = ev.dataTransfer.getData("text");
+    ev.target.innerText = name;
+
+    if (dragSource && dragSource !== ev.target) dragSource.innerText = "";
+
+    updateFirstNameColor();
 }
 
-function dragFromWorker(ev) {
-    dragSourceCell = null;
-    ev.dataTransfer.setData("text/plain", ev.target.innerText);
-}
+document.querySelectorAll(".dropcell").forEach(cell => {
+    cell.ondragover = allowDrop;
+    cell.ondrop = drop;
+    cell.draggable = true;
+    cell.ondragstart = drag;
+});
 
-function dragFromCell(ev) {
-    if (!ev.target.innerText.trim()) return;
-    dragSourceCell = ev.target;
-    ev.dataTransfer.setData("text/plain", ev.target.innerText);
-}
-
-function dropOnCell(ev) {
-    ev.preventDefault();
-    const name = ev.dataTransfer.getData("text/plain");
-    if (!name) return;
-
-    const target = ev.currentTarget;
-    target.innerText = name;
-
-    // se sto spostando da un'altra cella, svuoto la sorgente
-    if (dragSourceCell && dragSourceCell !== target) {
-        dragSourceCell.innerText = "";
+/* ===========================
+   CANC PER CANCELLARE
+   =========================== */
+document.addEventListener("keydown", e => {
+    if (e.key === "Delete" && document.activeElement.classList.contains("dropcell")) {
+        document.activeElement.innerText = "";
+        updateFirstNameColor();
     }
+});
 
-    saveTable();
-    updateWorkersList();
-}
-
-function clearCell(ev) {
-    const cell = ev.currentTarget;
-    if (cell.innerText.trim() === "") return;
-    cell.innerText = "";
-    saveTable();
-    updateWorkersList();
-}
-
-function attachCellHandlers() {
-    document.querySelectorAll(".dropcell").forEach(cell => {
-        cell.ondragover = allowDrop;
-        cell.ondrop = dropOnCell;
-        cell.draggable = true;
-        cell.ondragstart = dragFromCell;
-        cell.onclick = clearCell;
-    });
-}
-
-/* ============================================================
-   SALVATAGGIO / CARICAMENTO CELLE
-   ============================================================ */
-function saveTable() {
-    document.querySelectorAll(".dropcell").forEach(cell => {
-        const key = cell.dataset.key;
-        const storageKey = `${currentWeek}_${key}`;
-        localStorage.setItem(storageKey, cell.innerText);
-    });
-}
-
-function loadTable() {
-    document.querySelectorAll(".dropcell").forEach(cell => {
-        const key = cell.dataset.key;
-        const storageKey = `${currentWeek}_${key}`;
-        cell.innerText = localStorage.getItem(storageKey) || "";
-    });
-}
-
-/* ============================================================
-   DIPENDENTI
-   ============================================================ */
-const defaultWorkers = [
-"ILIE","ARCURI","BAGHIN","LINENCO","NOCENTINI","SOTTILI","BAGIARDI","CHAND","NANNUCCI",
-"BROGELLI","PELLEGRINI","MARCUCCI","DI STEFANO","RENZI","BILLI","FAGIOLI","MAGHERINI",
-"GRIMALDI","PALMIERI","HRICTU","DONATI","HRISTAR","MAGNI","SACCHETTI","PINHEIRO",
-"TRIVIGNO","VINCI","RICCI","RIGHESCHI","PARDEEP","FORTE","CAPPELLI","ERMINI",
-"PIPPUCCI","TOZZI","BRUNORI","CECCHERINI","COLONNA","NOTTURNI","NOVELLI"
-];
-
-function updateWorkersList() {
-    const list = document.getElementById("workersList");
-    list.innerHTML = "";
-
-    // assegnati SOLO nel giorno selezionato
-    const assigned = new Set();
-    document.querySelectorAll(`.dropcell[data-day='${currentDay}']`).forEach(cell => {
-        const val = cell.innerText.trim();
-        if (val) assigned.add(val);
-    });
-
-    defaultWorkers.forEach(w => {
-        if (!assigned.has(w)) {
-            const div = document.createElement("div");
-            div.className = "worker";
-            div.draggable = true;
-            div.ondragstart = dragFromWorker;
-            div.innerText = w;
-            list.appendChild(div);
+/* ===========================
+   PRIMO NOME CELESTE
+   =========================== */
+function updateFirstNameColor() {
+    document.querySelectorAll(".firstcell").forEach(cell => {
+        cell.classList.remove("first-name");
+        if (cell.innerText.trim() !== "") {
+            cell.classList.add("first-name");
         }
     });
 }
-
-function addWorker() {
-    const input = document.getElementById("newWorker");
-    const name = input.value.trim();
-    if (!name) return;
-    defaultWorkers.push(name);
-    input.value = "";
-    updateWorkersList();
-}
-
-/* ============================================================
-   SELEZIONE GIORNO + EVIDENZIAZIONE COLONNA
-   ============================================================ */
-function selectDay(day) {
-    currentDay = day;
-
-    // bottoni
-    document.querySelectorAll(".daySelector button").forEach(btn => {
-        btn.classList.toggle("active", btn.dataset.day === day);
-    });
-
-    // rimuovi evidenziazione precedente
-    document.querySelectorAll(".selected-day-cell").forEach(c => {
-        c.classList.remove("selected-day-cell");
-    });
-    document.querySelectorAll(".selected-day-header").forEach(c => {
-        c.classList.remove("selected-day-header");
-    });
-
-    // aggiungi evidenziazione alla colonna selezionata
-    document.querySelectorAll(`th[data-day='${day}']`).forEach(th => {
-        th.classList.add("selected-day-header");
-    });
-    document.querySelectorAll(`.dropcell[data-day='${day}']`).forEach(td => {
-        td.classList.add("selected-day-cell");
-    });
-
-    updateWorkersList();
-}
-
-/* ============================================================
-   INIT
-   ============================================================ */
-buildTables();
-updateWeekLabel();
-loadTable();
-selectDay("lun");
-updateWorkersList();
 </script>
 
 </body>
