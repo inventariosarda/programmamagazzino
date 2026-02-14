@@ -2,7 +2,7 @@
 <html lang="it">
 <head>
 <meta charset="UTF-8">
-<title>Programma Magazzino - Sardaformaggi</title>
+<title>Programma Magazzino</title>
 
 <style>
     body {
@@ -12,10 +12,10 @@
         background: #f2f2f2;
     }
 
-    /* --- PANNELLO DIPENDENTI --- */
+    /* Sidebar */
     #sidebar {
         width: 260px;
-        background: #ffffff;
+        background: #fff;
         border-left: 2px solid #ccc;
         padding: 15px;
         height: 100vh;
@@ -26,9 +26,8 @@
     }
 
     #sidebar h2 {
-        margin-top: 0;
-        font-size: 18px;
         text-align: center;
+        margin-top: 0;
     }
 
     .worker {
@@ -60,36 +59,64 @@
         cursor: pointer;
     }
 
-    /* --- TABELLA --- */
+    /* Main */
     #main {
         flex: 1;
         padding: 20px;
         margin-right: 260px;
     }
 
-    table {
-        width: 100%;
-        border-collapse: collapse;
+    .daySelector button {
+        padding: 10px 15px;
+        margin-right: 5px;
+        cursor: pointer;
+    }
+
+    .weekNav {
+        margin: 15px 0;
+    }
+
+    .weekNav button {
+        padding: 8px 12px;
+        margin-right: 10px;
+        cursor: pointer;
+    }
+
+    .section {
+        margin-top: 25px;
         background: white;
-    }
-
-    th, td {
+        padding: 10px;
+        border-radius: 6px;
         border: 1px solid #ccc;
-        padding: 6px;
-        text-align: center;
     }
 
-    th {
-        background: #ddd;
+    .section h3 {
+        margin: 0;
+        padding: 5px 0;
+        border-bottom: 1px solid #ccc;
     }
 
-    td.dropcell {
-        min-width: 120px;
-        height: 40px;
+    .row {
+        display: flex;
+        border-bottom: 1px solid #eee;
+        padding: 6px 0;
+    }
+
+    .row label {
+        width: 250px;
+        font-weight: bold;
+    }
+
+    .cell {
+        flex: 1;
+        min-height: 35px;
         background: #fafafa;
+        border: 1px solid #ddd;
+        padding: 5px;
+        cursor: pointer;
     }
 
-    td.dropcell:hover {
+    .cell:hover {
         background: #e6f7ff;
     }
 </style>
@@ -97,10 +124,9 @@
 
 <body>
 
-<!-- ===================== SIDEBAR ===================== -->
+<!-- Sidebar -->
 <div id="sidebar">
     <h2>Dipendenti</h2>
-
     <div id="workersList"></div>
 
     <h3>Aggiungi dipendente</h3>
@@ -110,31 +136,143 @@
     </div>
 </div>
 
-<!-- ===================== CONTENUTO PRINCIPALE ===================== -->
+<!-- Main -->
 <div id="main">
-    <h1>Programma Settimanale Magazzino</h1>
 
-    <table id="scheduleTable">
-        <thead>
-            <tr>
-                <th>Reparto</th>
-                <th>Linea</th>
-                <th>Nr.</th>
-                <th>Lunedì</th>
-                <th>Martedì</th>
-                <th>Mercoledì</th>
-                <th>Giovedì</th>
-                <th>Venerdì</th>
-                <th>Sabato</th>
-            </tr>
-        </thead>
-        <tbody id="tableBody"></tbody>
-    </table>
+    <h1>Programma Magazzino</h1>
+
+    <!-- Selezione giorno -->
+    <div class="daySelector">
+        <button onclick="selectDay('lun')">Lunedì</button>
+        <button onclick="selectDay('mar')">Martedì</button>
+        <button onclick="selectDay('mer')">Mercoledì</button>
+        <button onclick="selectDay('gio')">Giovedì</button>
+        <button onclick="selectDay('ven')">Venerdì</button>
+        <button onclick="selectDay('sab')">Sabato</button>
+    </div>
+
+    <!-- Navigazione settimana -->
+    <div class="weekNav">
+        <button onclick="prevWeek()">← Settimana precedente</button>
+        <span id="weekLabel"></span>
+        <button onclick="nextWeek()">Settimana successiva →</button>
+    </div>
+
+    <!-- ESEMPIO DI REPARTO -->
+    <div class="section">
+        <h3>GRATTUGIATURA GRATTUGIA</h3>
+
+        <div class="row">
+            <label>06:00–14:00</label>
+            <div class="cell dropcell" data-key="g1"></div>
+        </div>
+
+        <div class="row">
+            <label></label>
+            <div class="cell dropcell" data-key="g2"></div>
+        </div>
+
+        <div class="row">
+            <label></label>
+            <div class="cell dropcell" data-key="g3"></div>
+        </div>
+
+        <div class="row">
+            <label></label>
+            <div class="cell dropcell" data-key="g4"></div>
+        </div>
+
+        <div class="row">
+            <label></label>
+            <div class="cell dropcell" data-key="g5"></div>
+        </div>
+    </div>
+
 </div>
 
 <script>
 /* ============================================================
-   LISTA DIPENDENTI (estratti dal PDF)
+   GESTIONE SETTIMANE
+   ============================================================ */
+let currentWeek = getCurrentWeek();
+let currentDay = "lun";
+
+function getCurrentWeek() {
+    const now = new Date();
+    const onejan = new Date(now.getFullYear(), 0, 1);
+    return Math.ceil((((now - onejan) / 86400000) + onejan.getDay() + 1) / 7);
+}
+
+function updateWeekLabel() {
+    document.getElementById("weekLabel").innerText =
+        "Settimana " + currentWeek;
+}
+
+function prevWeek() {
+    currentWeek--;
+    loadTable();
+    updateWorkersList();
+    updateWeekLabel();
+}
+
+function nextWeek() {
+    currentWeek++;
+    loadTable();
+    updateWorkersList();
+    updateWeekLabel();
+}
+
+updateWeekLabel();
+
+/* ============================================================
+   SELEZIONE GIORNO
+   ============================================================ */
+function selectDay(day) {
+    currentDay = day;
+    loadTable();
+    updateWorkersList();
+}
+
+/* ============================================================
+   DRAG & DROP
+   ============================================================ */
+function allowDrop(ev) { ev.preventDefault(); }
+function drag(ev) { ev.dataTransfer.setData("text", ev.target.innerText); }
+
+document.querySelectorAll(".dropcell").forEach(cell => {
+    cell.ondragover = allowDrop;
+    cell.ondrop = function(ev) {
+        ev.preventDefault();
+        const name = ev.dataTransfer.getData("text");
+        this.innerText = name;
+        saveTable();
+        updateWorkersList();
+    };
+});
+
+/* ============================================================
+   SALVATAGGIO CELLE
+   ============================================================ */
+function saveTable() {
+    document.querySelectorAll(".dropcell").forEach(cell => {
+        const key = cell.dataset.key;
+        const storageKey = `${currentWeek}_${currentDay}_${key}`;
+        localStorage.setItem(storageKey, cell.innerText);
+    });
+}
+
+function loadTable() {
+    document.querySelectorAll(".dropcell").forEach(cell => {
+        const key = cell.dataset.key;
+        const storageKey = `${currentWeek}_${currentDay}_${key}`;
+        cell.innerText = localStorage.getItem(storageKey) || "";
+    });
+}
+
+loadTable();
+
+/* ============================================================
+   DIPENDENTI
    ============================================================ */
 const defaultWorkers = [
 "ILIE","ARCURI","BAGHIN","LINENCO","NOCENTINI","SOTTILI","BAGIARDI","CHAND","NANNUCCI",
@@ -144,160 +282,40 @@ const defaultWorkers = [
 "PIPPUCCI","TOZZI","BRUNORI","CECCHERINI","COLONNA","NOTTURNI","NOVELLI"
 ];
 
-/* ============================================================
-   STRUTTURA TABELLA (versione semplificata)
-   ============================================================ */
-const rows = [
-    { reparto:"CAPOTURNO", linea:"-", nr:"1" },
-    { reparto:"Linea 3 - Quarti", linea:"2", nr:"" },
-    { reparto:"Linea 3 - Quarti", linea:"3", nr:"" },
-    { reparto:"Linea 3 - Quarti", linea:"4", nr:"" },
-    { reparto:"Linea 3 - Quarti", linea:"5", nr:"" },
-    { reparto:"Linea 2 - Porzioni", linea:"1", nr:"" },
-    { reparto:"Linea 2 - Porzioni", linea:"2", nr:"" },
-    { reparto:"Linea 2 - Porzioni", linea:"3", nr:"" },
-    { reparto:"Linea 1 Termoformatrice", linea:"1", nr:"" },
-    { reparto:"Linea 1 Termoformatrice", linea:"2", nr:"" },
-    { reparto:"Grattugiatura 06-14", linea:"1", nr:"" },
-    { reparto:"Grattugiatura 06-14", linea:"2", nr:"" },
-    { reparto:"Grattugiatura 06-14", linea:"3", nr:"" },
-    { reparto:"Grattugiatura 06-14", linea:"4", nr:"" },
-    { reparto:"Grattugiatura 06-14", linea:"5", nr:"" },
-    { reparto:"Grattugiatura 14-22", linea:"1", nr:"" },
-    { reparto:"Grattugiatura 14-22", linea:"2", nr:"" },
-    { reparto:"Grattugiatura 14-22", linea:"3", nr:"" },
-    { reparto:"Grattugiatura 14-22", linea:"4", nr:"" },
-    { reparto:"Grattugiatura 14-22", linea:"5", nr:"" },
-    { reparto:"Etichettatura", linea:"1", nr:"" },
-    { reparto:"Etichettatura", linea:"2", nr:"" },
-    { reparto:"Etichettatura", linea:"3", nr:"" },
-    { reparto:"Spedizioni Forme", linea:"1", nr:"" },
-    { reparto:"Spedizioni Forme", linea:"2", nr:"" },
-    { reparto:"Spedizioni Porzionati", linea:"1", nr:"" },
-    { reparto:"Spedizioni Porzionati", linea:"2", nr:"" },
-    { reparto:"Spedizioni Porzionati", linea:"3", nr:"" },
-    { reparto:"Spedizioni Porzionati", linea:"4", nr:"" },
-    { reparto:"Attività Saltuarie", linea:"1", nr:"" },
-    { reparto:"Attività Saltuarie", linea:"2", nr:"" },
-    { reparto:"Attività Saltuarie", linea:"3", nr:"" },
-    { reparto:"Carico Forno", linea:"1", nr:"" },
-    { reparto:"Carico Forno", linea:"2", nr:"" },
-    { reparto:"Pezzi", linea:"1", nr:"" },
-    { reparto:"Pezzi", linea:"2", nr:"" },
-    { reparto:"Pezzi", linea:"3", nr:"" },
-    { reparto:"Qualità / Resi", linea:"1", nr:"" },
-    { reparto:"Qualità / Resi", linea:"2", nr:"" },
-    { reparto:"Magazzinieri", linea:"1", nr:"" },
-    { reparto:"Magazzinieri", linea:"2", nr:"" },
-    { reparto:"Magazzinieri", linea:"3", nr:"" }
-];
+function updateWorkersList() {
+    const list = document.getElementById("workersList");
+    list.innerHTML = "";
 
-/* ============================================================
-   COSTRUZIONE TABELLA
-   ============================================================ */
-const tableBody = document.getElementById("tableBody");
+    const assigned = new Set();
+    document.querySelectorAll(".dropcell").forEach(cell => {
+        if (cell.innerText.trim() !== "") assigned.add(cell.innerText.trim());
+    });
 
-rows.forEach((r, index) => {
-    const tr = document.createElement("tr");
-
-    tr.innerHTML = `
-        <td>${r.reparto}</td>
-        <td>${r.linea}</td>
-        <td>${r.nr}</td>
-        ${createDayCell(index, "lun")}
-        ${createDayCell(index, "mar")}
-        ${createDayCell(index, "mer")}
-        ${createDayCell(index, "gio")}
-        ${createDayCell(index, "ven")}
-        ${createDayCell(index, "sab")}
-    `;
-
-    tableBody.appendChild(tr);
-});
-
-function createDayCell(row, day) {
-    const key = `cell_${row}_${day}`;
-    const saved = localStorage.getItem(key) || "";
-    return `<td class="dropcell" ondrop="drop(event)" ondragover="allowDrop(event)" ondblclick="clearCell(this,'${key}')">${saved}</td>`;
-}
-
-/* ============================================================
-   DRAG & DROP
-   ============================================================ */
-function allowDrop(ev) {
-    ev.preventDefault();
-}
-
-function drag(ev) {
-    ev.dataTransfer.setData("text", ev.target.innerText);
-}
-
-function drop(ev) {
-    ev.preventDefault();
-    const text = ev.dataTransfer.getData("text");
-    ev.target.innerText = text;
-
-    saveTable();
-}
-
-function clearCell(cell, key) {
-    cell.innerText = "";
-    localStorage.removeItem(key);
-}
-
-/* ============================================================
-   SALVATAGGIO AUTOMATICO
-   ============================================================ */
-function saveTable() {
-    const cells = document.querySelectorAll(".dropcell");
-    let index = 0;
-
-    rows.forEach((r, rIndex) => {
-        ["lun","mar","mer","gio","ven","sab"].forEach(day => {
-            const key = `cell_${rIndex}_${day}`;
-            const cell = cells[index];
-            localStorage.setItem(key, cell.innerText);
-            index++;
-        });
+    defaultWorkers.forEach(w => {
+        if (!assigned.has(w)) {
+            const div = document.createElement("div");
+            div.className = "worker";
+            div.draggable = true;
+            div.ondragstart = drag;
+            div.innerText = w;
+            list.appendChild(div);
+        }
     });
 }
 
+updateWorkersList();
+
 /* ============================================================
-   GESTIONE DIPENDENTI
+   AGGIUNTA DIPENDENTE
    ============================================================ */
-const workersList = document.getElementById("workersList");
-
-function loadWorkers() {
-    let workers = JSON.parse(localStorage.getItem("workers"));
-    if (!workers) workers = defaultWorkers;
-
-    workersList.innerHTML = "";
-    workers.forEach(w => addWorkerToList(w));
-}
-
-function addWorkerToList(name) {
-    const div = document.createElement("div");
-    div.className = "worker";
-    div.draggable = true;
-    div.ondragstart = drag;
-    div.innerText = name;
-    workersList.appendChild(div);
-}
-
 function addWorker() {
     const name = document.getElementById("newWorker").value.trim();
     if (name === "") return;
 
-    addWorkerToList(name);
-
-    let workers = JSON.parse(localStorage.getItem("workers")) || defaultWorkers;
-    workers.push(name);
-    localStorage.setItem("workers", JSON.stringify(workers));
-
+    defaultWorkers.push(name);
     document.getElementById("newWorker").value = "";
+    updateWorkersList();
 }
-
-loadWorkers();
 </script>
 
 </body>
