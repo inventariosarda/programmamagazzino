@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<title>Programma Magazzino - Sardaformaggi</title>
+
+<style>
+    body {
+        margin: 0;
+        font-family: Arial, sans-serif;
+        display: flex;
+        background: #f2f2f2;
+    }
+
+    /* --- PANNELLO DIPENDENTI --- */
+    #sidebar {
+        width: 260px;
+        background: #ffffff;
+        border-left: 2px solid #ccc;
+        padding: 15px;
+        height: 100vh;
+        overflow-y: auto;
+        position: fixed;
+        right: 0;
+        top: 0;
+    }
+
+    #sidebar h2 {
+        margin-top: 0;
+        font-size: 18px;
+        text-align: center;
+    }
+
+    .worker {
+        padding: 8px;
+        margin: 5px 0;
+        background: #e8e8e8;
+        border-radius: 4px;
+        cursor: grab;
+        text-align: center;
+    }
+
+    .worker:active {
+        cursor: grabbing;
+    }
+
+    #addWorkerBox {
+        display: flex;
+        margin-top: 10px;
+    }
+
+    #addWorkerBox input {
+        flex: 1;
+        padding: 5px;
+    }
+
+    #addWorkerBox button {
+        padding: 5px 10px;
+        margin-left: 5px;
+        cursor: pointer;
+    }
+
+    /* --- TABELLA --- */
+    #main {
+        flex: 1;
+        padding: 20px;
+        margin-right: 260px;
+    }
+
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        background: white;
+    }
+
+    th, td {
+        border: 1px solid #ccc;
+        padding: 6px;
+        text-align: center;
+    }
+
+    th {
+        background: #ddd;
+    }
+
+    td.dropcell {
+        min-width: 120px;
+        height: 40px;
+        background: #fafafa;
+    }
+
+    td.dropcell:hover {
+        background: #e6f7ff;
+    }
+</style>
+</head>
+
+<body>
+
+<!-- ===================== SIDEBAR ===================== -->
+<div id="sidebar">
+    <h2>Dipendenti</h2>
+
+    <div id="workersList"></div>
+
+    <h3>Aggiungi dipendente</h3>
+    <div id="addWorkerBox">
+        <input type="text" id="newWorker" placeholder="Nome">
+        <button onclick="addWorker()">+</button>
+    </div>
+</div>
+
+<!-- ===================== CONTENUTO PRINCIPALE ===================== -->
+<div id="main">
+    <h1>Programma Settimanale Magazzino</h1>
+
+    <table id="scheduleTable">
+        <thead>
+            <tr>
+                <th>Reparto</th>
+                <th>Linea</th>
+                <th>Nr.</th>
+                <th>Lunedì</th>
+                <th>Martedì</th>
+                <th>Mercoledì</th>
+                <th>Giovedì</th>
+                <th>Venerdì</th>
+                <th>Sabato</th>
+            </tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+    </table>
+</div>
+
+<script>
+/* ============================================================
+   LISTA DIPENDENTI (estratti dal PDF)
+   ============================================================ */
+const defaultWorkers = [
+"ILIE","ARCURI","BAGHIN","LINENCO","NOCENTINI","SOTTILI","BAGIARDI","CHAND","NANNUCCI",
+"BROGELLI","PELLEGRINI","MARCUCCI","DI STEFANO","RENZI","BILLI","FAGIOLI","MAGHERINI",
+"GRIMALDI","PALMIERI","HRICTU","DONATI","HRISTAR","MAGNI","SACCHETTI","PINHEIRO",
+"TRIVIGNO","VINCI","RICCI","RIGHESCHI","PARDEEP","FORTE","CAPPELLI","ERMINI",
+"PIPPUCCI","TOZZI","BRUNORI","CECCHERINI","COLONNA","NOTTURNI","NOVELLI"
+];
+
+/* ============================================================
+   STRUTTURA TABELLA (versione semplificata)
+   ============================================================ */
+const rows = [
+    { reparto:"CAPOTURNO", linea:"-", nr:"1" },
+    { reparto:"Linea 3 - Quarti", linea:"2", nr:"" },
+    { reparto:"Linea 3 - Quarti", linea:"3", nr:"" },
+    { reparto:"Linea 3 - Quarti", linea:"4", nr:"" },
+    { reparto:"Linea 3 - Quarti", linea:"5", nr:"" },
+    { reparto:"Linea 2 - Porzioni", linea:"1", nr:"" },
+    { reparto:"Linea 2 - Porzioni", linea:"2", nr:"" },
+    { reparto:"Linea 2 - Porzioni", linea:"3", nr:"" },
+    { reparto:"Linea 1 Termoformatrice", linea:"1", nr:"" },
+    { reparto:"Linea 1 Termoformatrice", linea:"2", nr:"" },
+    { reparto:"Grattugiatura 06-14", linea:"1", nr:"" },
+    { reparto:"Grattugiatura 06-14", linea:"2", nr:"" },
+    { reparto:"Grattugiatura 06-14", linea:"3", nr:"" },
+    { reparto:"Grattugiatura 06-14", linea:"4", nr:"" },
+    { reparto:"Grattugiatura 06-14", linea:"5", nr:"" },
+    { reparto:"Grattugiatura 14-22", linea:"1", nr:"" },
+    { reparto:"Grattugiatura 14-22", linea:"2", nr:"" },
+    { reparto:"Grattugiatura 14-22", linea:"3", nr:"" },
+    { reparto:"Grattugiatura 14-22", linea:"4", nr:"" },
+    { reparto:"Grattugiatura 14-22", linea:"5", nr:"" },
+    { reparto:"Etichettatura", linea:"1", nr:"" },
+    { reparto:"Etichettatura", linea:"2", nr:"" },
+    { reparto:"Etichettatura", linea:"3", nr:"" },
+    { reparto:"Spedizioni Forme", linea:"1", nr:"" },
+    { reparto:"Spedizioni Forme", linea:"2", nr:"" },
+    { reparto:"Spedizioni Porzionati", linea:"1", nr:"" },
+    { reparto:"Spedizioni Porzionati", linea:"2", nr:"" },
+    { reparto:"Spedizioni Porzionati", linea:"3", nr:"" },
+    { reparto:"Spedizioni Porzionati", linea:"4", nr:"" },
+    { reparto:"Attività Saltuarie", linea:"1", nr:"" },
+    { reparto:"Attività Saltuarie", linea:"2", nr:"" },
+    { reparto:"Attività Saltuarie", linea:"3", nr:"" },
+    { reparto:"Carico Forno", linea:"1", nr:"" },
+    { reparto:"Carico Forno", linea:"2", nr:"" },
+    { reparto:"Pezzi", linea:"1", nr:"" },
+    { reparto:"Pezzi", linea:"2", nr:"" },
+    { reparto:"Pezzi", linea:"3", nr:"" },
+    { reparto:"Qualità / Resi", linea:"1", nr:"" },
+    { reparto:"Qualità / Resi", linea:"2", nr:"" },
+    { reparto:"Magazzinieri", linea:"1", nr:"" },
+    { reparto:"Magazzinieri", linea:"2", nr:"" },
+    { reparto:"Magazzinieri", linea:"3", nr:"" }
+];
+
+/* ============================================================
+   COSTRUZIONE TABELLA
+   ============================================================ */
+const tableBody = document.getElementById("tableBody");
+
+rows.forEach((r, index) => {
+    const tr = document.createElement("tr");
+
+    tr.innerHTML = `
+        <td>${r.reparto}</td>
+        <td>${r.linea}</td>
+        <td>${r.nr}</td>
+        ${createDayCell(index, "lun")}
+        ${createDayCell(index, "mar")}
+        ${createDayCell(index, "mer")}
+        ${createDayCell(index, "gio")}
+        ${createDayCell(index, "ven")}
+        ${createDayCell(index, "sab")}
+    `;
+
+    tableBody.appendChild(tr);
+});
+
+function createDayCell(row, day) {
+    const key = `cell_${row}_${day}`;
+    const saved = localStorage.getItem(key) || "";
+    return `<td class="dropcell" ondrop="drop(event)" ondragover="allowDrop(event)" ondblclick="clearCell(this,'${key}')">${saved}</td>`;
+}
+
+/* ============================================================
+   DRAG & DROP
+   ============================================================ */
+function allowDrop(ev) {
+    ev.preventDefault();
+}
+
+function drag(ev) {
+    ev.dataTransfer.setData("text", ev.target.innerText);
+}
+
+function drop(ev) {
+    ev.preventDefault();
+    const text = ev.dataTransfer.getData("text");
+    ev.target.innerText = text;
+
+    saveTable();
+}
+
+function clearCell(cell, key) {
+    cell.innerText = "";
+    localStorage.removeItem(key);
+}
+
+/* ============================================================
+   SALVATAGGIO AUTOMATICO
+   ============================================================ */
+function saveTable() {
+    const cells = document.querySelectorAll(".dropcell");
+    let index = 0;
+
+    rows.forEach((r, rIndex) => {
+        ["lun","mar","mer","gio","ven","sab"].forEach(day => {
+            const key = `cell_${rIndex}_${day}`;
+            const cell = cells[index];
+            localStorage.setItem(key, cell.innerText);
+            index++;
+        });
+    });
+}
+
+/* ============================================================
+   GESTIONE DIPENDENTI
+   ============================================================ */
+const workersList = document.getElementById("workersList");
+
+function loadWorkers() {
+    let workers = JSON.parse(localStorage.getItem("workers"));
+    if (!workers) workers = defaultWorkers;
+
+    workersList.innerHTML = "";
+    workers.forEach(w => addWorkerToList(w));
+}
+
+function addWorkerToList(name) {
+    const div = document.createElement("div");
+    div.className = "worker";
+    div.draggable = true;
+    div.ondragstart = drag;
+    div.innerText = name;
+    workersList.appendChild(div);
+}
+
+function addWorker() {
+    const name = document.getElementById("newWorker").value.trim();
+    if (name === "") return;
+
+    addWorkerToList(name);
+
+    let workers = JSON.parse(localStorage.getItem("workers")) || defaultWorkers;
+    workers.push(name);
+    localStorage.setItem("workers", JSON.stringify(workers));
+
+    document.getElementById("newWorker").value = "";
+}
+
+loadWorkers();
+</script>
+
+</body>
+</html>
