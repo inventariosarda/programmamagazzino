@@ -66,12 +66,6 @@
         margin-right: 260px;
     }
 
-    .daySelector button {
-        padding: 10px 15px;
-        margin-right: 5px;
-        cursor: pointer;
-    }
-
     .weekNav {
         margin: 15px 0;
     }
@@ -96,27 +90,36 @@
         border-bottom: 1px solid #ccc;
     }
 
-    .row {
-        display: flex;
-        border-bottom: 1px solid #eee;
-        padding: 6px 0;
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 10px;
     }
 
-    .row label {
-        width: 250px;
+    th, td {
+        border: 1px solid #ccc;
+        padding: 6px;
+        text-align: center;
+    }
+
+    th {
+        background: #ddd;
+    }
+
+    .labelCell {
+        text-align: left;
         font-weight: bold;
+        background: #f7f7f7;
+        width: 250px;
     }
 
-    .cell {
-        flex: 1;
+    .dropcell {
         min-height: 35px;
         background: #fafafa;
-        border: 1px solid #ddd;
-        padding: 5px;
         cursor: pointer;
     }
 
-    .cell:hover {
+    .dropcell:hover {
         background: #e6f7ff;
     }
 </style>
@@ -141,16 +144,6 @@
 
     <h1>Programma Magazzino</h1>
 
-    <!-- Selezione giorno -->
-    <div class="daySelector">
-        <button onclick="selectDay('lun')">Lunedì</button>
-        <button onclick="selectDay('mar')">Martedì</button>
-        <button onclick="selectDay('mer')">Mercoledì</button>
-        <button onclick="selectDay('gio')">Giovedì</button>
-        <button onclick="selectDay('ven')">Venerdì</button>
-        <button onclick="selectDay('sab')">Sabato</button>
-    </div>
-
     <!-- Navigazione settimana -->
     <div class="weekNav">
         <button onclick="prevWeek()">← Settimana precedente</button>
@@ -158,34 +151,75 @@
         <button onclick="nextWeek()">Settimana successiva →</button>
     </div>
 
-    <!-- ESEMPIO DI REPARTO -->
+    <!-- ============================
+         ESEMPIO DI REPARTO COMPLETO
+         ============================ -->
     <div class="section">
         <h3>GRATTUGIATURA GRATTUGIA</h3>
 
-        <div class="row">
-            <label>06:00–14:00</label>
-            <div class="cell dropcell" data-key="g1"></div>
-        </div>
+        <table>
+            <tr>
+                <th>Reparto / Turno</th>
+                <th>Lunedì</th>
+                <th>Martedì</th>
+                <th>Mercoledì</th>
+                <th>Giovedì</th>
+                <th>Venerdì</th>
+                <th>Sabato</th>
+            </tr>
 
-        <div class="row">
-            <label></label>
-            <div class="cell dropcell" data-key="g2"></div>
-        </div>
+            <!-- Sottoreparto -->
+            <tr>
+                <td class="labelCell">06:00–14:00</td>
+                <td class="dropcell" data-key="g1_lun"></td>
+                <td class="dropcell" data-key="g1_mar"></td>
+                <td class="dropcell" data-key="g1_mer"></td>
+                <td class="dropcell" data-key="g1_gio"></td>
+                <td class="dropcell" data-key="g1_ven"></td>
+                <td class="dropcell" data-key="g1_sab"></td>
+            </tr>
 
-        <div class="row">
-            <label></label>
-            <div class="cell dropcell" data-key="g3"></div>
-        </div>
+            <!-- 5 righe operative -->
+            <tr>
+                <td class="labelCell"></td>
+                <td class="dropcell" data-key="g2_lun"></td>
+                <td class="dropcell" data-key="g2_mar"></td>
+                <td class="dropcell" data-key="g2_mer"></td>
+                <td class="dropcell" data-key="g2_gio"></td>
+                <td class="dropcell" data-key="g2_ven"></td>
+                <td class="dropcell" data-key="g2_sab"></td>
+            </tr>
 
-        <div class="row">
-            <label></label>
-            <div class="cell dropcell" data-key="g4"></div>
-        </div>
+            <tr>
+                <td class="labelCell"></td>
+                <td class="dropcell" data-key="g3_lun"></td>
+                <td class="dropcell" data-key="g3_mar"></td>
+                <td class="dropcell" data-key="g3_mer"></td>
+                <td class="dropcell" data-key="g3_gio"></td>
+                <td class="dropcell" data-key="g3_ven"></td>
+                <td class="dropcell" data-key="g3_sab"></td>
+            </tr>
 
-        <div class="row">
-            <label></label>
-            <div class="cell dropcell" data-key="g5"></div>
-        </div>
+            <tr>
+                <td class="labelCell"></td>
+                <td class="dropcell" data-key="g4_lun"></td>
+                <td class="dropcell" data-key="g4_mar"></td>
+                <td class="dropcell" data-key="g4_mer"></td>
+                <td class="dropcell" data-key="g4_gio"></td>
+                <td class="dropcell" data-key="g4_ven"></td>
+                <td class="dropcell" data-key="g4_sab"></td>
+            </tr>
+
+            <tr>
+                <td class="labelCell"></td>
+                <td class="dropcell" data-key="g5_lun"></td>
+                <td class="dropcell" data-key="g5_mar"></td>
+                <td class="dropcell" data-key="g5_mer"></td>
+                <td class="dropcell" data-key="g5_gio"></td>
+                <td class="dropcell" data-key="g5_ven"></td>
+                <td class="dropcell" data-key="g5_sab"></td>
+            </tr>
+        </table>
     </div>
 
 </div>
@@ -195,7 +229,6 @@
    GESTIONE SETTIMANE
    ============================================================ */
 let currentWeek = getCurrentWeek();
-let currentDay = "lun";
 
 function getCurrentWeek() {
     const now = new Date();
@@ -225,15 +258,6 @@ function nextWeek() {
 updateWeekLabel();
 
 /* ============================================================
-   SELEZIONE GIORNO
-   ============================================================ */
-function selectDay(day) {
-    currentDay = day;
-    loadTable();
-    updateWorkersList();
-}
-
-/* ============================================================
    DRAG & DROP
    ============================================================ */
 function allowDrop(ev) { ev.preventDefault(); }
@@ -256,7 +280,7 @@ document.querySelectorAll(".dropcell").forEach(cell => {
 function saveTable() {
     document.querySelectorAll(".dropcell").forEach(cell => {
         const key = cell.dataset.key;
-        const storageKey = `${currentWeek}_${currentDay}_${key}`;
+        const storageKey = `${currentWeek}_${key}`;
         localStorage.setItem(storageKey, cell.innerText);
     });
 }
@@ -264,7 +288,7 @@ function saveTable() {
 function loadTable() {
     document.querySelectorAll(".dropcell").forEach(cell => {
         const key = cell.dataset.key;
-        const storageKey = `${currentWeek}_${currentDay}_${key}`;
+        const storageKey = `${currentWeek}_${key}`;
         cell.innerText = localStorage.getItem(storageKey) || "";
     });
 }
